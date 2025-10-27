@@ -1,0 +1,6 @@
+participant_id,age_at_diagnosis,primary_diagnosis,vital_status,gender,race,ethnicity
+HTA-001,65,Adenocarcinoma,Alive,Female,White,Not Hispanic or Latino
+HTA-002,72,Squamous Cell Carcinoma,Dead,Male,Black or African American,Not Hispanic or Latino
+HTA-003,58,Large Cell Carcinoma,Alive,Female,Asian,Not Hispanic or Latino
+HTA-004,69,Small Cell Lung Cancer,Dead,Male,White,Hispanic or Latino
+HTA-005,63,Adenocarcinoma,Alive,Female,Native Hawaiian or Other Pacific Islander,Not Hispanic or Latino

@@ -1,0 +1,25 @@
+agents:
+  biomni:
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+    weight: 0.4
+  magneto:
+    weight: 0.35
+  claude_de:
+    weight: 0.25
+
+thresholds:
+  auto_approve: 0.95
+  hitl_required: 0.85
+  reject: 0.85
+
+vector_store:
+  backend: faiss
+  dimension: 384
+  index_type: "IndexFlatL2"
+
+mappings:
+  formats:
+    - crdc_linkml
+    - htan_json
+    - gdc_json
+    - schema_crush_json

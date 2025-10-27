@@ -1,0 +1,6 @@
+biospecimen_id,participant_id,tissue_type,collection_date,preservation_method,anatomic_site,tumor_grade,tumor_stage
+BIO-001,HTA-001,Primary Tumor,2024-01-15,FFPE,Lung,G2,Stage IIIA
+BIO-002,HTA-002,Normal,2024-02-03,Fresh Frozen,Lung,Not Applicable,Not Applicable
+BIO-003,HTA-003,Metastatic,2024-01-28,FFPE,Liver,G3,Stage IV
+BIO-004,HTA-004,Primary Tumor,2024-02-10,OCT,Lung,G4,Stage IV
+BIO-005,HTA-005,Normal,2024-01-22,Fresh Frozen,Lung,Not Applicable,Not Applicable

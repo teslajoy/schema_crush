@@ -1,0 +1,29 @@
+# langchain v1 (includes langgraph)
+langchain[anthropic]
+
+# vector db
+chromadb
+
+# agents from github repos
+git+https://github.com/snap-stanford/Biomni.git@main
+git+https://github.com/VIDA-NYU/magneto-matcher.git@main#subdirectory=algorithms/magneto
+
+# ml/embeddings
+scikit-learn
+sentence-transformers
+transformers
+torch
+
+# data processing
+pandas
+numpy
+pyyaml
+pydantic
+
+# utilities
+python-dotenv
+click
+ipython
+
+# testing
+pytest

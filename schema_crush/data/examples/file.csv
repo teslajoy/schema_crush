@@ -1,0 +1,6 @@
+file_id,participant_id,file_type,file_url,file_size,file_format,data_category
+FILE-001,HTA-001,WSI,https://data.example.org/files/wsi_001.svs,125000000,SVS,Histology Images
+FILE-002,HTA-002,Radiology,https://data.example.org/files/rad_002.dcm,45000000,DICOM,Medical Imaging
+FILE-003,HTA-003,Pathology,https://data.example.org/files/path_003.jpg,2000000,JPEG,Pathology Images
+FILE-004,HTA-004,Genomics,https://data.example.org/files/genomics_004.vcf,85000000,VCF,Variant Calls
+FILE-005,HTA-005,Transcriptomics,https://data.example.org/files/rna_005.fastq,180000000,FASTQ,RNA Sequencing

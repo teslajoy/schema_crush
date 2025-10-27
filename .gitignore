@@ -1,0 +1,64 @@
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# ide
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# os
+.DS_Store
+Thumbs.db
+
+# results and outputs
+results/
+examples/reports/
+*.log
+
+# model caches
+.cache/
+models/
+
+# jupyter
+.ipynb_checkpoints/
+
+# chromadb
+vector_store/
+chroma_db/
+
+# environment
+.env
+.env.local
