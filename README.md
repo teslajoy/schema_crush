@@ -14,56 +14,13 @@ pip install -e .
 
 ## usage
 
-```python
-from schema_crush.loaders.csv_loader import CSVLoader
-from schema_crush.tools.embeddings.biobert_embedder import BioBERTEmbedder
-from schema_crush.tools.embeddings.magneto_embedder import MagnetoEmbedder
-from schema_crush.orchestrator.pearl_agent import PEARLAgent
-from schema_crush.reporting.mapping_report import MappingReport
+run the gdc embedder evaluation example:
 
-# load source data
-loader = CSVLoader()
-source_data = loader.load({'case': 'data/examples/case.csv'})
-
-# define target schema
-target_schema = {
-    'Patient': ['id', 'identifier', 'birthDate', 'gender'],
-    'Condition': ['code', 'id']
-}
-
-# create embedders
-embedders = {
-    'biobert': BioBERTEmbedder(),
-    'magneto': MagnetoEmbedder()
-}
-
-# run matching
-agent = PEARLAgent(
-    embedders=embedders,
-    embedder_weights={'biobert': 0.3, 'magneto': 0.7},
-    confidence_thresholds={'high': 0.95, 'medium': 0.85},
-    top_k=5
-)
-
-results = agent.run(
-    source_data=source_data,
-    target_schema=target_schema,
-    tiers=['entity', 'field', 'content']
-)
-
-# generate report
-reporter = MappingReport(output_dir='results')
-files = reporter.generate(
-    results=results,
-    source_name='gdc_case',
-    target_name='fhir',
-    embedders_used=['biobert', 'magneto'],
-    embedder_weights={'biobert': 0.3, 'magneto': 0.7},
-    confidence_thresholds={'high': 0.95, 'medium': 0.85}
-)
-
-print(f"results saved to: {files['summary']}")
+```bash
+python examples/evaluate_gdc_embedders.py
 ```
+
+this evaluates biobert vs magneto on gdc->fhir mappings and generates a full report in `examples/reports/`.
 
 ## architecture
 
@@ -106,17 +63,6 @@ all results saved to `results/` directory:
 - `*_metadata.json`: run configuration and metrics
 - `*_hitl_queue.json`: matches requiring human review
 - `*_summary.txt`: human-readable summary
-
-## performance
-
-evaluated on gdc -> fhir mappings (20 fields):
-
-| embedder | precision@1 | recall@5 | mrr |
-|----------|-------------|----------|-----|
-| magneto  | 25.0%       | 65.0%    | 0.38 |
-| biobert  | 5.0%        | 15.0%    | 0.09 |
-
-magneto trained on gdc benchmark outperforms biobert 5x for schema matching tasks on GDC data particularly.
 
 ## testing
 
