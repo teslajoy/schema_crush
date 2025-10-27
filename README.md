@@ -1,11 +1,15 @@
 # schema_crush
 
-semantic schema matching using multi-agent (biobert and magneto for now) embedders with human-in-the-loop validation.
+schema_crush is a modular framework for semantic schema matching that leverages multi-agent embedders (BioBERT, Magneto) and human-in-the-loop validation to align heterogeneous biomedical schemas. It supports 3-tier matching (entity, field, content) with weighted embedder fusion, confidence-based routing, and automated reporting. 
 
 ## install
 
 ```bash
 pip install -r requirements.txt
+```
+or 
+```bash 
+pip install -e .
 ```
 
 ## usage
