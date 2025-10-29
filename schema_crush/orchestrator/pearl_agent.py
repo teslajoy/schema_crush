@@ -31,7 +31,7 @@ class MatchTier(Enum):
 class ConfidenceLevel(Enum):
     """confidence levels for matches."""
     HIGH = "high"  # >= 95%
-    MEDIUM = "medium"  # 85-95% (requires HITL)
+    MEDIUM = "medium"  # 85-95% (requires hitl)
     LOW = "low"  # < 85%
 
 
@@ -135,10 +135,12 @@ class ReasonAgent:
         self,
         embedders: Dict[str, Any],
         embedder_weights: Dict[str, float],
-        confidence_thresholds: Dict[str, float]
+        confidence_thresholds: Dict[str, float],
+        mapping_ruledb: Optional[Any] = None
     ):
         self.name = "reason_agent"
         self.embedders = embedders
+        self.mapping_ruledb = mapping_ruledb
 
         # ensure all embedders have weights (default to equal if missing)
         complete_weights = {}
@@ -531,7 +533,8 @@ class PEARLAgent:
         embedder_weights: Optional[Dict[str, float]] = None,
         confidence_thresholds: Optional[Dict[str, float]] = None,
         top_k: int = 5,
-        enable_hitl: bool = True
+        enable_hitl: bool = True,
+        mapping_ruledb: Optional[Any] = None
     ):
         """
         initialize pearl agent.
@@ -542,6 +545,7 @@ class PEARLAgent:
             confidence_thresholds: thresholds for confidence levels
             top_k: top matches to keep per field
             enable_hitl: whether to enable hitl interrupts
+            mapping_ruledb: optional ruledatabase with htan/gdc composite rules
         """
         self.embedders = embedders
         self.embedder_weights = embedder_weights or {name: 1.0 for name in embedders}
@@ -552,6 +556,7 @@ class PEARLAgent:
         }
         self.top_k = top_k
         self.enable_hitl = enable_hitl
+        self.mapping_ruledb = mapping_ruledb
 
         # cache for dataframes (not serialized in checkpoints)
         self._data_cache = {}
@@ -561,7 +566,8 @@ class PEARLAgent:
         self.reason_agent = ReasonAgent(
             self.embedders,
             self.embedder_weights,
-            self.confidence_thresholds
+            self.confidence_thresholds,
+            self.mapping_ruledb
         )
         self.act_agent = ActAgent(top_k=self.top_k)
         self.hitl_agent = HitlAgent() if enable_hitl else None
@@ -593,7 +599,7 @@ class PEARLAgent:
 
         if self.enable_hitl:
             workflow.add_edge("act", "hitl")
-            # hitl returns Command, not dict
+            # hitl returns command, not dict
         else:
             workflow.add_edge("act", "learn")
 
@@ -612,7 +618,7 @@ class PEARLAgent:
 
         # compile workflow
         # note: checkpointing disabled for now due to dataframe serialization issues
-        # TODO: implement custom checkpointer that handles dataframes
+        # todo: implement custom checkpointer that handles dataframes
         if self.enable_hitl:
             return workflow.compile(
                 checkpointer=None,  # disabled for now
