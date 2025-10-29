@@ -1,4 +1,4 @@
-"""Base loader interface."""
+"""base loader interface."""
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List

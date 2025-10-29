@@ -14,7 +14,7 @@ def get_package_path(relative_path: str) -> Path:
         relative_path: path relative to schema_crush package (ex. 'data/examples/case.csv')
 
     returns:
-        absolute Path object
+        absolute path object
 
     example:
         >>> case_path = get_package_path('data/examples/case.csv')

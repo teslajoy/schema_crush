@@ -1,4 +1,4 @@
-"""CSV/DataFrame loader with Claude Data Engineer integration."""
+"""csv/dataframe loader with claude data engineer integration."""
 
 import pandas as pd
 from typing import Dict, Any, List, Optional, Union
@@ -8,9 +8,9 @@ from .base import BaseLoader
 
 class CSVLoader(BaseLoader):
     """
-    CSV loader for biomedical data (case, file, biospecimen tables).
+    csv loader for biomedical data (case, file, biospecimen tables).
     
-    Integrates with Claude Data Engineer for intelligent data analysis
+    integrates with claude data engineer for intelligent data analysis
     and schema inference with up to 5 iterations for refinement.
     """
     
@@ -27,17 +27,17 @@ class CSVLoader(BaseLoader):
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Load CSV files for biomedical entities.
+        load csv files for biomedical entities.
         
-        Args:
-            sources: Either a single CSV path or dict of {entity_name: csv_path}
+        args:
+            sources: either a single csv path or dict of {entity_name: csv_path}
                     e.g., {"case": "cases.csv", "file": "files.csv", "biospecimen": "biospecimen.csv"}
         
-        Returns:
-            Dictionary with loaded DataFrames and metadata
+        returns:
+            dictionary with loaded dataframes and metadata
         """
         if isinstance(sources, str):
-            # Single file - infer entity name from filename
+            # single file - infer entity name from filename
             entity_name = Path(sources).stem
             sources = {entity_name: sources}
         
@@ -64,7 +64,7 @@ class CSVLoader(BaseLoader):
         return self.loaded_data
     
     def get_schema_info(self, loaded_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Extract comprehensive schema information."""
+        """extract comprehensive schema information."""
         data = loaded_data or self.loaded_data
         
         schema_info = {
@@ -100,24 +100,24 @@ class CSVLoader(BaseLoader):
                     "error": entity_data.get("error", "Unknown error")
                 }
         
-        # Generate summary for Claude DE analysis
+        # generate summary for claude de analysis
         schema_info["summary"] = self._generate_summary(schema_info)
         return schema_info
     
     def _is_identifier_field(self, column_name: str, series: pd.Series) -> bool:
-        """Heuristic to detect identifier fields."""
+        """heuristic to detect identifier fields."""
         col_lower = column_name.lower()
-        
-        # Name-based detection
+
+        # name-based detection
         id_indicators = ['id', 'identifier', 'code', 'key', 'uuid', 'guid', 'number']
         if any(indicator in col_lower for indicator in id_indicators):
             return True
         
-        # Pattern-based detection
+        # pattern-based detection
         if series.dtype == 'object':
             sample_values = series.dropna().head(10).astype(str)
             if len(sample_values) > 0:
-                # Check for common ID patterns
+                # check for common id patterns
                 avg_length = sample_values.str.len().mean()
                 has_consistent_format = sample_values.str.contains(r'^[A-Z0-9-_]+$', na=False).mean() > 0.7
                 
@@ -127,7 +127,7 @@ class CSVLoader(BaseLoader):
         return False
     
     def _is_biomedical_field(self, column_name: str, series: pd.Series) -> bool:
-        """Heuristic to detect biomedical fields."""
+        """heuristic to detect biomedical fields."""
         col_lower = column_name.lower()
         
         biomedical_terms = [
@@ -139,7 +139,7 @@ class CSVLoader(BaseLoader):
         return any(term in col_lower for term in biomedical_terms)
     
     def _generate_summary(self, schema_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate summary for Claude DE analysis."""
+        """generate summary for claude de analysis."""
         total_fields = 0
         identifier_fields = 0
         biomedical_fields = 0
@@ -165,7 +165,7 @@ class CSVLoader(BaseLoader):
                     "key_fields": [
                         name for name, info in fields.items()
                         if info.get("is_identifier") or info.get("is_biomedical")
-                    ][:5]  # Top 5 key fields
+                    ][:5]  # top 5 key fields
                 }
         
         return {
@@ -178,21 +178,21 @@ class CSVLoader(BaseLoader):
     
     def analyze_with_claude_de(self, max_iterations: int = 5) -> Dict[str, Any]:
         """
-        Integrate with Claude Data Engineer for enhanced analysis.
+        integrate with claude data engineer for enhanced analysis.
         
-        This method would call Claude DE to:
-        1. Analyze the loaded data structure
-        2. Identify potential FHIR mappings
-        3. Suggest data quality improvements
-        4. Refine schema understanding through iterations
+        this method would call claude de to:
+        1. analyze the loaded data structure
+        2. identify potential fhir mappings
+        3. suggest data quality improvements
+        4. refine schema understanding through iterations
         """
         self.max_iterations = max_iterations
         self.claude_de_iterations = 0
         
         schema_info = self.get_schema_info()
         
-        # Placeholder for Claude DE integration
-        # In real implementation, this would call Claude DE API
+        # placeholder for claude de integration
+        # in real implementation, this would call claude de api
         analysis_prompt = self._build_claude_de_prompt(schema_info)
         
         return {
@@ -203,40 +203,40 @@ class CSVLoader(BaseLoader):
         }
     
     def _build_claude_de_prompt(self, schema_info: Dict[str, Any]) -> str:
-        """Build prompt for Claude Data Engineer analysis."""
+        """build prompt for claude data engineer analysis."""
         summary = schema_info["summary"]
         
-        prompt = f"""Analyze this biomedical CSV dataset for FHIR schema mapping:
+        prompt = f"""analyze this biomedical csv dataset for fhir schema mapping:
 
-DATASET SUMMARY:
+dataset summary:
 - {summary['total_fields']} total fields across {schema_info['total_entities']} entities
 - {summary['identifier_fields']} identifier fields detected
 - {summary['biomedical_fields']} biomedical fields detected
 
-ENTITIES:"""
+entities:"""
         
         for entity_name, entity_summary in summary["entities"].items():
             prompt += f"""
 
 {entity_name.upper()}:
 - {entity_summary['field_count']} fields, {entity_summary['row_count']} rows
-- Key fields: {', '.join(entity_summary['key_fields'])}"""
+- key fields: {', '.join(entity_summary['key_fields'])}"""
         
         prompt += """
 
-TASKS:
-1. Identify which entity corresponds to FHIR Patient, Specimen, Observation, etc.
-2. Map key identifier and biomedical fields to FHIR paths
-3. Suggest data transformations needed
-4. Flag potential data quality issues
-5. Recommend mapping confidence levels
+tasks:
+1. identify which entity corresponds to fhir patient, specimen, observation, etc.
+2. map key identifier and biomedical fields to fhir paths
+3. suggest data transformations needed
+4. flag potential data quality issues
+5. recommend mapping confidence levels
 
-Provide structured analysis for automated processing."""
+provide structured analysis for automated processing."""
         
         return prompt
     
     def get_mapping_candidates(self) -> Dict[str, List[str]]:
-        """Get field candidates for each FHIR target based on heuristics."""
+        """get field candidates for each fhir target based on heuristics."""
         schema_info = self.get_schema_info()
         candidates = {}
         
@@ -265,11 +265,11 @@ Provide structured analysis for automated processing."""
         field_info: Dict[str, Any], 
         target: str
     ) -> bool:
-        """Heuristic matching of fields to FHIR targets."""
+        """heuristic matching of fields to fhir targets."""
         field_lower = field_name.lower()
         target_lower = target.lower()
         
-        # Simple keyword matching
+        # simple keyword matching
         if "identifier" in target_lower and field_info.get("is_identifier", False):
             return True
         

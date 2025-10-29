@@ -16,7 +16,7 @@ class MagnetoEmbedder:
 
     uses magneto's trained models and column encoding strategies.
     supports both default models (mpnet, roberta, e5, arctic, minilm)
-    and fine-tuned models trained on schema matching benchmarks (including GDC).
+    and fine-tuned models trained on schema matching benchmarks (including gdc).
     """
 
     def __init__(
@@ -32,7 +32,7 @@ class MagnetoEmbedder:
         initialize magneto embedder.
 
         args:
-            model_name: key from DEFAULT_MODELS or path to fine-tuned model
+            model_name: key from default_models or path to fine-tuned model
             encoding_mode: column encoding strategy (header_only, header_values_verbose, etc.)
             sampling_mode: sampling strategy (random, frequent, mixed, etc.)
             num_samples: number of samples for content embedding

@@ -1,11 +1,11 @@
-"""Base agent interface for Schema Crush v2."""
+"""base agent interface for schema crush v2."""
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
 
 class BaseAgent(ABC):
-    """Base class for all schema mapping agents."""
+    """base class for all schema mapping agents."""
     
     def __init__(self, name: str):
         self.name = name
@@ -15,34 +15,34 @@ class BaseAgent(ABC):
     @abstractmethod
     def match(self, source: str, target: str, level: str) -> Dict[str, Any]:
         """
-        Standard match interface for field-level matching.
+        standard match interface for field-level matching.
         
-        Args:
-            source: Source field/entity name
-            target: Target FHIR path
-            level: Matching level ('entity', 'field', 'content')
+        args:
+            source: source field/entity name
+            target: target fhir path
+            level: matching level ('entity', 'field', 'content')
             
-        Returns:
-            Dictionary with match result
+        returns:
+            dictionary with match result
         """
         pass
     
     def match_entities(self, source_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Match entities (CSV tables) to FHIR resources.
+        match entities (csv tables) to fhir resources.
         
-        Args:
-            source_data: Loaded CSV data with entity information
+        args:
+            source_data: loaded csv data with entity information
             
-        Returns:
-            Dictionary with entity mappings
+        returns:
+            dictionary with entity mappings
         """
-        # Default implementation - can be overridden
+        # default implementation - can be overridden
         entities = source_data.get("entities", {})
         mappings = {}
         
         for entity_name in entities.keys():
-            # Simple heuristic mapping
+            # simple heuristic mapping
             if "case" in entity_name.lower() or "patient" in entity_name.lower():
                 mappings[entity_name] = "Patient"
             elif "specimen" in entity_name.lower() or "biospecimen" in entity_name.lower():
@@ -66,16 +66,16 @@ class BaseAgent(ABC):
         entity_mappings: Dict[str, str]
     ) -> Dict[str, Any]:
         """
-        Match fields within entities to FHIR paths.
+        match fields within entities to fhir paths.
         
-        Args:
-            source_data: Loaded CSV data
-            entity_mappings: Results from entity matching
+        args:
+            source_data: loaded csv data
+            entity_mappings: results from entity matching
             
-        Returns:
-            Dictionary with field mappings  
+        returns:
+            dictionary with field mappings  
         """
-        # Default implementation - can be overridden
+        # default implementation - can be overridden
         mappings = {}
         confidences = []
         
@@ -116,19 +116,19 @@ class BaseAgent(ABC):
         field_mappings: Dict[str, str]
     ) -> Dict[str, Any]:
         """
-        Transform content based on field mappings.
+        transform content based on field mappings.
         
-        Args:
-            source_data: Loaded CSV data
-            field_mappings: Results from field matching
+        args:
+            source_data: loaded csv data
+            field_mappings: results from field matching
             
-        Returns:
-            Dictionary with transformation specifications
+        returns:
+            dictionary with transformation specifications
         """
         transformations = {}
         
         for source_field, target_field in field_mappings.items():
-            # Basic transformation - can be overridden
+            # basic transformation - can be overridden
             transformations[source_field] = {
                 "target": target_field,
                 "transform_type": "direct_copy",
@@ -145,7 +145,7 @@ class BaseAgent(ABC):
         }
     
     def _get_targets_for_entity(self, fhir_entity: str) -> list:
-        """Get candidate FHIR targets for an entity type."""
+        """get candidate fhir targets for an entity type."""
         targets_by_entity = {
             "Patient": [
                 "Patient.identifier", "Patient.birthDate", "Patient.deceasedBoolean",
@@ -176,7 +176,7 @@ class BaseAgent(ABC):
         rationale: str,
         method: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Format standard result dictionary."""
+        """format standard result dictionary."""
         return {
             "decision": decision,
             "confidence": float(confidence),

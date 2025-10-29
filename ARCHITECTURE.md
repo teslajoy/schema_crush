@@ -670,5 +670,279 @@ rulematcher | 15% (3/20) | 30% (6/20) | 0.2000 | 0.90 (uniform) | knowledge-base
 
 **Key insight**: high confidence ≠ high accuracy. biobert's 0.90 confidence maps to ~5% accuracy, while magneto's 0.53 confidence maps to actual correctness. phase 3 learning will calibrate confidence scores based on historical performance.
 
-**Next steps:** The RuleMatcher scoring needs refinement - it's too generous with tier 1 matches. could tune the tier weights or implement more sophisticated scoring, but that can
-  wait for phase 2 when we have agents that can learn optimal weights. onward... 
+## 10. multi-agent architecture (phase 2 - implemented)
+
+### distinction: matchers vs autonomous agents
+
+component | role | responsibility | example
+----------|------|----------------|--------
+**matchers** | scoring tools | compute similarity between source/target pairs, return scores 0-1 | BioBERTMatcher, MagnetoMatcher, RuleMatcher
+**autonomous agents** | reasoning entities | analyze context, propose mappings with explanations, generate supporting evidence | BioBERTAgent, MagnetoAgent, RuleAgent
+
+### architecture layers
+
+```
+BioBERTEmbedder (tools/embeddings/) -> wraps library
+BioBERTMatcher (tools/matchers/) -> implements BaseMatcher interface
+BioBERTAgent (orchestrator/agents/) -> uses matcher as tool, adds reasoning
+Multi-Agent System (orchestrator/) -> collects proposals, arbitrates consensus
+```
+
+### autonomous agent interface
+
+**file**: `orchestrator/agents/base_agent.py`
+
+```python
+@dataclass
+class MappingProposal:
+    """agent's proposed mapping with reasoning."""
+    source_field: str
+    target_field: str
+    confidence: float
+    reasoning: str
+    supporting_evidence: Optional[dict] = None
+
+class AutonomousAgent(ABC):
+    """autonomous agent that proposes mappings with reasoning."""
+
+    @abstractmethod
+    def propose_mappings(
+        self, source_field: str, candidate_targets: List[str], context: dict
+    ) -> List[MappingProposal]:
+        """propose mappings with reasoning and confidence scores."""
+        pass
+
+    @abstractmethod
+    def explain_decision(self, proposal: MappingProposal) -> str:
+        """provide detailed explanation for a mapping proposal."""
+        pass
+```
+
+### implemented agents
+
+agent | matcher used | reasoning approach | performance on case_id
+------|--------------|-------------------|----------------------
+BioBERTAgent | BioBERTMatcher | semantic similarity in biomedical embedding space | top-1: Patient.id (0.861), avg consensus: 0.764
+MagnetoAgent | MagnetoMatcher | schema patterns learned from gdc training data | top-1: Patient.id (0.532), calibrated confidence
+RuleAgent | RuleMatcher | knowledge base rules with tier-based scoring | top-1: Patient.id (0.900), needs calibration tuning
+
+### multi-agent consensus example
+
+**task**: map `case_id` to fhir resource
+
+**agent proposals**:
+- BioBERTAgent: Patient.id (0.861) - "biobert semantic similarity: 0.861. 'case_id' and 'Patient.id' share biomedical context."
+- MagnetoAgent: Patient.id (0.532) - "magneto schema matching: 0.532. trained on gdc->fhir mappings, recognizes structural patterns."
+- RuleAgent: Patient.id (0.900) - "no direct rule match for case_id -> Patient.id (inferred score: 0.900)"
+
+**consensus**: 3/3 agents agree on Patient.id, average confidence: 0.764
+
+**ground truth**: Patient.id (correct)
+
+### agent registry
+
+dynamic loading from config:
+
+```python
+from schema_crush.orchestrator.agents import get_agent
+
+agent = get_agent("biobert", matcher=biobert_matcher)
+agent = get_agent("magneto", matcher=magneto_matcher)
+agent = get_agent("rule", matcher=rule_matcher)
+```
+
+### phase 2 deliverables (completed)
+
+- AutonomousAgent base interface with MappingProposal dataclass
+- BioBERTAgent, MagnetoAgent, RuleAgent implementations
+- BioBERTMatcher, MagnetoMatcher wrapping embedders
+- Agent registry for dynamic loading (AGENT_REGISTRY)
+- Multi-agent consensus demonstration (3/3 agreement on Patient.id)
+- All tests passing (5/5 in test_autonomous_agents.py)
+
+### phase 3 - llm autonomous agent (completed)
+
+**critical refactor**: phase 2 agents were not true autonomous agents - they were wrappers around matchers with templated reasoning strings. phase 3 replaces them with a single LLM-based agent that has access to matcher tools.
+
+#### new architecture: tools vs agents
+
+component | type | responsibility
+----------|------|---------------
+BioBERTMatcher, MagnetoMatcher, RuleMatcher | tools | scoring functions that return similarity scores
+biobert_match, magneto_match, rule_match | langchain tools | @tool decorated functions for Claude to call
+ClaudeAgent | autonomous agent | LLM with tool access, makes reasoned decisions
+
+#### ClaudeAgent implementation
+
+**file**: `orchestrator/agents/claude_agent.py`
+
+```python
+class ClaudeAgent(AutonomousAgent):
+    """autonomous llm agent using claude with tool access for schema mapping.
+
+    this agent can perform three types of mapping tasks:
+    1. entity matching (source entity -> fhir resource)
+    2. field matching (source field -> fhir field path)
+    3. content matching (source values -> fhir coded values)
+    """
+
+    def __init__(self, model: str = "claude-sonnet-4-20250514",
+                 api_key: Optional[str] = None, task: str = "field"):
+        self.llm = ChatAnthropic(model=model, api_key=api_key, temperature=0).bind_tools(MAPPING_TOOLS)
+        self.system_prompt = self._get_task_prompt(task)  # task-specific prompts
+```
+
+#### task-specific prompts
+
+task | prompt | guidelines
+-----|--------|------------
+entity | ENTITY_MATCHING_PROMPT | map source entity/table -> fhir resource type
+field | FIELD_MATCHING_PROMPT | map source field -> fhir field path (prioritize magneto for structural matching)
+content | CONTENT_MATCHING_PROMPT | map source values -> fhir coded values with appropriate coding system
+
+#### agentic loop (multi-turn tool calling)
+
+```python
+# 1. initial llm call
+response = self.llm.invoke([SystemMessage(prompt), HumanMessage(query)])
+
+# 2. execute tools iteratively (max 5 iterations)
+while hasattr(response, 'tool_calls') and response.tool_calls:
+    for tool_call in response.tool_calls:
+        tool_result = tool_map[tool_name].invoke(tool_args)
+        messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_call['id']))
+
+    # 3. invoke llm again with tool results
+    response = self.llm.invoke(messages)
+
+# 4. parse structured output
+CHOSEN TARGET: [exact target from list]
+CONFIDENCE: [0.0-1.0]
+REASONING: [detailed explanation]
+```
+
+#### example: tissue_preservation_method mapping
+
+**query**: map "tissue_preservation_method" to fhir field
+
+**candidates**: Specimen.type.coding.display, Specimen.collection.method, Specimen.processing.method, Observation.method, Procedure.code, Specimen.container.type
+
+**agentic reasoning process**:
+
+iteration | tool called | top result | score
+----------|-------------|------------|------
+1 | magneto_match | Specimen.processing.method | 0.60
+1 | magneto_match | Specimen.collection.method | 0.55
+2 | biobert_match | Specimen.processing.method | 0.82
+2 | biobert_match | Specimen.collection.method | 0.82
+3 | rule_match | (no matches) | 0.0
+
+**claude's reasoning**:
+```
+CHOSEN TARGET: Specimen.processing.method
+CONFIDENCE: 0.75
+REASONING:
+
+"Tissue preservation method" refers to techniques used to maintain tissue
+integrity after collection (e.g., formalin fixation, freezing, paraffin
+embedding). This is fundamentally a processing step that occurs after the
+initial collection/procurement of the specimen.
+
+Evidence:
+1. Magneto structural matching (trained on GDC->FHIR): Ranks
+   Specimen.processing.method highest (0.60) followed by
+   Specimen.collection.method (0.55)
+
+2. BioBERT semantic matching: Shows high semantic similarity for both
+   processing.method (0.82) and collection.method (0.82)
+
+3. Domain knowledge: In biomedical workflows, preservation is typically
+   considered a processing step in the specimen lifecycle, occurring
+   post-collection to maintain specimen quality for analysis.
+```
+
+**ground truth**: Specimen.collection.method (different from Claude's choice, but Claude's reasoning is defensible - preservation could be either collection or processing)
+
+#### key advantages
+
+1. **true autonomy**: Claude decides which tools to call and when, not hardcoded logic
+2. **multi-turn reasoning**: can call multiple tools in sequence to gather evidence
+3. **explainable decisions**: provides detailed reasoning based on tool results
+4. **task flexibility**: same agent handles entity/field/content matching via different prompts
+5. **tool composability**: easy to add new matcher tools without changing agent code
+
+#### tools interface
+
+**file**: `orchestrator/agents/tools.py`
+
+```python
+@tool
+def biobert_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
+    """use biobert embeddings for biomedical semantic similarity matching."""
+    matcher = get_biobert_matcher()
+    results = matcher.match(source, candidates)
+    return [{"target": tgt, "score": float(score)} for tgt, score in results[:5]]
+
+@tool
+def magneto_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
+    """use magneto embeddings for schema structure matching."""
+    matcher = get_magneto_matcher()
+    results = matcher.match(source, candidates)
+    return [{"target": tgt, "score": float(score)} for tgt, score in results[:5]]
+
+@tool
+def rule_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
+    """use knowledge base rules for mapping lookup."""
+    matcher = get_rule_matcher()
+    results = matcher.match(source, candidates)
+    return [{"target": tgt, "score": float(score), ...} for tgt, score in results[:5]]
+
+MAPPING_TOOLS = [biobert_match, magneto_match, rule_match]
+```
+
+#### deleted files (fake agents)
+
+- orchestrator/agents/biobert_agent.py (replaced by tools)
+- orchestrator/agents/magneto_agent.py (replaced by tools)
+- orchestrator/agents/rule_agent.py (replaced by tools)
+- orchestrator/agents/registry.py (no longer needed)
+
+#### phase 3 deliverables (completed)
+
+- ClaudeAgent with multi-turn agentic loop
+- Three task-specific prompts (entity, field, content)
+- LangChain @tool wrappers for matchers
+- Structured output parsing (CHOSEN TARGET, CONFIDENCE, REASONING)
+- Demo script (examples/demo_claude_agent.py)
+- Proper tool execution with ToolMessage feedback
+
+#### next: phase 4 - consensus and learning
+
+planned components:
+- Multi-agent orchestrator (collect proposals from multiple ClaudeAgent instances)
+- AdaptiveWeightManager (adjust tool weights based on accuracy)
+- ConfidenceCalibrator (calibrate overconfident tools like biobert)
+- ChromaDB integration (store proposals and outcomes for learning)
+
+#### performance optimization options
+
+current performance (single mapping):
+- initialization: 4-5s (model loading with warmup)
+- claude api: 25-28s (3-4 iterations with tool calling)
+- total: ~32s
+
+further optimization options (if needed):
+1. **async tool calling**: call tools in parallel instead of sequentially
+2. **smaller models**: use distilled/quantized versions of biobert/magneto
+3. **rule caching**: pre-compute rule embeddings and cache to disk
+4. **streaming responses**: show claude's reasoning in real-time
+5. **batch mode**: process multiple mappings in one session
+
+#### improving ground truth alignment
+
+when claude disagrees with ground truth (ex, preservation -> processing vs collection):
+1. **accept claude's reasoning**: it's making valid domain-based decisions with evidence
+2. **adjust the prompt**: add more specific guidance about your data model's definitions
+3. **use this for learning**: feed back corrections to train confidence calibration
+4. **add more training data**: include examples where preservation -> collection.method in knowledge base
+5. **domain-specific rules**: add explicit rules for edge cases in RuleDatabase 

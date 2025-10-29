@@ -40,7 +40,7 @@ def evaluate_embedder(embedder, embedder_name, gdc_mappings, top_k=5, max_fields
         embedder_name: name for display
         gdc_mappings: ground truth source->destination mappings
         top_k: number of top predictions to consider
-        max_fields: maximum number of source fields to evaluate (None for all)
+        max_fields: maximum number of source fields to evaluate (none for all)
 
     returns:
         dict with precision, recall, mrr, f1 metrics and detailed results
@@ -250,7 +250,7 @@ def main(top_k=5, max_fields=20):
 
     args:
         top_k: number of top predictions to consider
-        max_fields: maximum number of fields to evaluate (None for all)
+        max_fields: maximum number of fields to evaluate (none for all)
     """
     print("loading gdc mappings...")
     gdc_mappings = load_gdc_mappings()

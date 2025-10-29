@@ -35,30 +35,30 @@ class DataProfiler(BaseAgent):
     
     def match(self, source: str, target: str, level: str) -> Dict[str, Any]:
         """
-        Claude DE's data-driven matching approach.
+        claude de's data-driven matching approach.
         
-        Uses data analysis, schema patterns, and ETL expertise to determine matches.
+        uses data analysis, schema patterns, and etl expertise to determine matches.
         """
         # analyze from data engineering perspective
         analysis = self._data_engineering_analysis(source, target, level)
         
-        # Apply data pattern recognition
+        # apply data pattern recognition
         pattern_confidence = self._pattern_analysis(source, target, analysis)
         
-        # Schema compatibility assessment
+        # schema compatibility assessment
         schema_confidence = self._schema_compatibility(source, target, level)
         
-        # ETL feasibility analysis
+        # etl feasibility analysis
         etl_confidence = self._etl_feasibility(source, target, analysis)
         
-        # Combine confidences with data engineering weights
+        # combine confidences with data engineering weights
         final_confidence = (
             pattern_confidence * 0.4 +
             schema_confidence * 0.3 +
             etl_confidence * 0.3
         )
         
-        # Generate data engineering rationale
+        # generate data engineering rationale
         rationale = self._generate_de_rationale(
             analysis, pattern_confidence, schema_confidence, etl_confidence
         )
@@ -69,19 +69,19 @@ class DataProfiler(BaseAgent):
     
     def match_entities(self, source_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Entity matching using data engineering approach.
+        entity matching using data engineering approach.
         
-        Analyzes actual data patterns, relationships, and schema structure.
+        analyzes actual data patterns, relationships, and schema structure.
         """
         entities = source_data.get("entities", {})
         mappings = {}
         confidence_scores = []
         
         for entity_name, entity_data in entities.items():
-            # Analyze data characteristics
+            # analyze data characteristics
             data_profile = self._profile_entity_data(entity_name, entity_data)
             
-            # Map based on data patterns
+            # map based on data patterns
             fhir_entity = self._map_entity_by_data_pattern(data_profile)
             
             if fhir_entity:
@@ -104,7 +104,7 @@ class DataProfiler(BaseAgent):
         entity_mappings: Dict[str, str]
     ) -> Dict[str, Any]:
         """
-        Field matching using data analysis and ETL patterns.
+        field matching using data analysis and etl patterns.
         """
         mappings = {}
         field_analyses = {}
@@ -115,11 +115,11 @@ class DataProfiler(BaseAgent):
                 continue
             
             for field_name, field_info in entity_data["fields"].items():
-                # Analyze field data
+                # analyze field data
                 field_analysis = self._analyze_field_data(field_name, field_info)
                 field_analyses[f"{entity_name}.{field_name}"] = field_analysis
                 
-                # Find best FHIR mapping based on data analysis
+                # find best fhir mapping based on data analysis
                 best_target = self._find_best_target_by_data(
                     field_analysis, fhir_entity, field_info
                 )
@@ -145,15 +145,15 @@ class DataProfiler(BaseAgent):
         field_mappings: Dict[str, str]
     ) -> Dict[str, Any]:
         """
-        Content transformation with data engineering expertise.
+        content transformation with data engineering expertise.
         """
         transformations = {}
         
         for source_field, target_field in field_mappings.items():
-            # Get field data for analysis
+            # get field data for analysis
             field_data = self._extract_field_data(source_data, source_field)
             
-            # Design transformation based on data analysis
+            # design transformation based on data analysis
             transform_spec = self._design_transformation(
                 field_data, source_field, target_field
             )
@@ -169,7 +169,7 @@ class DataProfiler(BaseAgent):
         }
     
     def _data_engineering_analysis(self, source: str, target: str, level: str) -> Dict[str, Any]:
-        """Comprehensive data engineering analysis."""
+        """comprehensive data engineering analysis."""
         return {
             "source_analysis": {
                 "field_name": source,
@@ -184,68 +184,68 @@ class DataProfiler(BaseAgent):
                 "constraints": self._get_fhir_constraints(target)
             },
             "compatibility": {
-                "type_compatible": True,  # Would check actual compatibility
+                "type_compatible": True,  # would check actual compatibility
                 "domain_match": self._check_domain_compatibility(source, target),
                 "transformation_needed": self._needs_transformation(source, target)
             }
         }
     
     def _pattern_analysis(self, source: str, target: str, analysis: Dict[str, Any]) -> float:
-        """Pattern analysis from data engineering perspective."""
+        """pattern analysis from data engineering perspective."""
         source_lower = source.lower()
         target_lower = target.lower()
         
         confidence = 0.0
         
-        # Identifier patterns (high confidence for data engineers)
+        # identifier patterns (high confidence for data engineers)
         if analysis["source_analysis"]["name_pattern"] == "identifier":
             if "identifier" in target_lower:
                 confidence += 0.8
             elif any(term in target_lower for term in ["id", "code", "key"]):
                 confidence += 0.6
         
-        # Data type patterns
+        # data type patterns
         inferred_type = analysis["source_analysis"]["likely_type"]
         fhir_type = analysis["target_analysis"]["field_type"]
         
         if self._types_compatible(inferred_type, fhir_type):
             confidence += 0.3
         
-        # Domain-specific patterns
+        # domain-specific patterns
         if analysis["compatibility"]["domain_match"]:
             confidence += 0.4
         
-        # Structural patterns
+        # structural patterns
         if self._structural_similarity(source, target) > 0.7:
             confidence += 0.2
         
         return min(confidence, 1.0)
     
     def _schema_compatibility(self, source: str, target: str, level: str) -> float:
-        """Schema compatibility analysis."""
-        # FHIR schema validation
+        """schema compatibility analysis."""
+        # fhir schema validation
         if not self._is_valid_fhir_path(target):
             return 0.0
         
-        # Cardinality compatibility
+        # cardinality compatibility
         source_cardinality = self._infer_cardinality(source)
         target_cardinality = self._get_fhir_cardinality(target)
         
         cardinality_score = 1.0 if source_cardinality == target_cardinality else 0.7
         
-        # Type system compatibility
+        # type system compatibility
         type_score = 0.8 if self._check_type_system_compatibility(source, target) else 0.4
         
-        # Constraint compatibility
+        # constraint compatibility
         constraint_score = self._check_constraint_compatibility(source, target)
         
         return (cardinality_score * 0.3 + type_score * 0.4 + constraint_score * 0.3)
     
     def _etl_feasibility(self, source: str, target: str, analysis: Dict[str, Any]) -> float:
-        """ETL feasibility assessment."""
-        feasibility_score = 0.8  # Base feasibility
+        """etl feasibility assessment."""
+        feasibility_score = 0.8  # base feasibility
         
-        # Transformation complexity
+        # transformation complexity
         if analysis["compatibility"]["transformation_needed"]:
             transform_complexity = self._assess_transformation_complexity(source, target)
             if transform_complexity == "simple":
@@ -255,18 +255,18 @@ class DataProfiler(BaseAgent):
             else:  # complex
                 feasibility_score = 0.5
         
-        # Data quality considerations
+        # data quality considerations
         data_quality_impact = self._assess_data_quality_impact(source, target)
         feasibility_score *= data_quality_impact
         
         return feasibility_score
     
     def _profile_entity_data(self, entity_name: str, entity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Profile entity data for mapping decisions."""
+        """profile entity data for mapping decisions."""
         fields = entity_data.get("fields", {})
         row_count = entity_data.get("row_count", 0)
         
-        # Analyze field patterns
+        # analyze field patterns
         identifier_fields = [
             name for name, info in fields.items()
             if info.get("is_identifier", False) or "id" in name.lower()
@@ -277,18 +277,18 @@ class DataProfiler(BaseAgent):
             if info.get("is_biomedical", False)
         ]
         
-        # Determine entity type confidence
-        confidence = 0.5  # Base confidence
+        # determine entity type confidence
+        confidence = 0.5  # base confidence
         
-        # Patient/case indicators
+        # patient/case indicators
         if any(term in entity_name.lower() for term in ["patient", "case", "subject"]):
             confidence = 0.9
             entity_type = "Patient"
-        # Specimen indicators
+        # specimen indicators
         elif any(term in entity_name.lower() for term in ["specimen", "tissue", "sample", "biospecimen"]):
             confidence = 0.85
             entity_type = "Specimen"
-        # File/document indicators
+        # file/document indicators
         elif any(term in entity_name.lower() for term in ["file", "document", "attachment"]):
             confidence = 0.8
             entity_type = "DocumentReference"
@@ -307,13 +307,13 @@ class DataProfiler(BaseAgent):
         }
     
     def _map_entity_by_data_pattern(self, data_profile: Dict[str, Any]) -> Optional[str]:
-        """Map entity based on data pattern analysis."""
+        """map entity based on data pattern analysis."""
         if data_profile["confidence"] > 0.6:
             return data_profile["entity_type"]
         return None
     
     def _analyze_field_data(self, field_name: str, field_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze individual field data."""
+        """analyze individual field data."""
         samples = field_info.get("samples", [])
         field_type = field_info.get("type", "unknown")
         
@@ -325,7 +325,7 @@ class DataProfiler(BaseAgent):
             "confidence": 0.5
         }
         
-        # Boost confidence based on clear patterns
+        # boost confidence based on clear patterns
         if analysis["pattern"] in ["url", "datetime", "identifier"]:
             analysis["confidence"] = 0.9
         elif analysis["pattern"] in ["categorical", "numerical"]:
@@ -339,11 +339,11 @@ class DataProfiler(BaseAgent):
         fhir_entity: str,
         field_info: Dict[str, Any]
     ) -> Optional[str]:
-        """Find best FHIR target based on data analysis."""
+        """find best fhir target based on data analysis."""
         pattern = field_analysis["pattern"]
         field_name = field_analysis["field_name"]
         
-        # Pattern-based mapping
+        # pattern-based mapping
         targets = self._get_targets_for_entity(fhir_entity)
         
         for target in targets:
@@ -353,7 +353,7 @@ class DataProfiler(BaseAgent):
         return None
     
     def _pattern_matches_target(self, pattern: str, field_name: str, target: str) -> bool:
-        """Check if data pattern matches FHIR target."""
+        """check if data pattern matches fhir target."""
         field_lower = field_name.lower()
         target_lower = target.lower()
         
@@ -366,7 +366,7 @@ class DataProfiler(BaseAgent):
         elif pattern == "categorical" and "type" in target_lower:
             return True
         
-        # Fallback to name similarity
+        # fallback to name similarity
         return any(token in target_lower for token in field_lower.split('_'))
     
     def _generate_de_rationale(
@@ -376,7 +376,7 @@ class DataProfiler(BaseAgent):
         schema_conf: float,
         etl_conf: float
     ) -> str:
-        """Generate data engineering rationale."""
+        """generate data engineering rationale."""
         domain = analysis["source_analysis"]["data_domain"]
         pattern = analysis["source_analysis"]["name_pattern"]
         compatible = analysis["compatibility"]["domain_match"]
@@ -387,7 +387,7 @@ class DataProfiler(BaseAgent):
             f"compatible: {compatible}"
         )
     
-    # Helper methods (simplified implementations)
+    # helper methods (simplified implementations)
     def _analyze_field_name(self, field_name: str) -> str:
         field_lower = field_name.lower()
         if any(term in field_lower for term in ["id", "identifier", "code"]):
@@ -402,7 +402,7 @@ class DataProfiler(BaseAgent):
             return "general"
     
     def _infer_data_type(self, field_name: str) -> str:
-        return "string"  # Simplified
+        return "string"  # simplified
     
     def _detect_data_domain(self, field_name: str) -> str:
         field_lower = field_name.lower()
@@ -412,47 +412,47 @@ class DataProfiler(BaseAgent):
         return "general"
     
     def _analyze_fhir_field_type(self, target: str) -> str:
-        return "string"  # Simplified
+        return "string"  # simplified
     
     def _get_fhir_constraints(self, target: str) -> List[str]:
-        return []  # Simplified
+        return []  # simplified
     
     def _check_domain_compatibility(self, source: str, target: str) -> bool:
         source_domain = self._detect_data_domain(source)
-        return source_domain in ["biomedical", "general"]  # Simplified
+        return source_domain in ["biomedical", "general"]  # simplified
     
     def _needs_transformation(self, source: str, target: str) -> bool:
-        return False  # Simplified
+        return False  # simplified
     
     def _types_compatible(self, source_type: str, target_type: str) -> bool:
-        return True  # Simplified
+        return True  # simplified
     
     def _structural_similarity(self, source: str, target: str) -> float:
-        return 0.5  # Simplified
+        return 0.5  # simplified
     
     def _is_valid_fhir_path(self, target: str) -> bool:
-        return "." in target  # Simplified
+        return "." in target  # simplified
     
     def _infer_cardinality(self, source: str) -> str:
-        return "1"  # Simplified
+        return "1"  # simplified
     
     def _get_fhir_cardinality(self, target: str) -> str:
-        return "1"  # Simplified
+        return "1"  # simplified
     
     def _check_type_system_compatibility(self, source: str, target: str) -> bool:
-        return True  # Simplified
+        return True  # simplified
     
     def _check_constraint_compatibility(self, source: str, target: str) -> float:
-        return 0.8  # Simplified
+        return 0.8  # simplified
     
     def _assess_transformation_complexity(self, source: str, target: str) -> str:
-        return "simple"  # Simplified
+        return "simple"  # simplified
     
     def _assess_data_quality_impact(self, source: str, target: str) -> float:
-        return 0.9  # Simplified
+        return 0.9  # simplified
     
     def _infer_data_type_from_samples(self, samples: List, field_type: str) -> str:
-        return field_type  # Simplified
+        return field_type  # simplified
     
     def _detect_data_pattern(self, samples: List) -> str:
         if not samples:
@@ -462,15 +462,15 @@ class DataProfiler(BaseAgent):
         if not sample_strs:
             return "unknown"
         
-        # URL pattern
+        # url pattern
         if any("http" in s.lower() for s in sample_strs):
             return "url"
         
-        # Date pattern
+        # date pattern
         if any("-" in s and ":" in s for s in sample_strs):
             return "datetime"
         
-        # Identifier pattern (alphanumeric with dashes/underscores)
+        # identifier pattern (alphanumeric with dashes/underscores)
         if all(any(c.isalnum() or c in "-_" for c in s) for s in sample_strs):
             if any(len(s) > 5 for s in sample_strs):
                 return "identifier"
@@ -478,8 +478,8 @@ class DataProfiler(BaseAgent):
         return "general"
     
     def _extract_field_data(self, source_data: Dict[str, Any], source_field: str) -> Dict[str, Any]:
-        """Extract field data for transformation design."""
-        return {"samples": [], "type": "string"}  # Simplified
+        """extract field data for transformation design."""
+        return {"samples": [], "type": "string"}  # simplified
     
     def _design_transformation(
         self, 
@@ -487,7 +487,7 @@ class DataProfiler(BaseAgent):
         source_field: str, 
         target_field: str
     ) -> Dict[str, Any]:
-        """Design ETL transformation specification."""
+        """design etl transformation specification."""
         return {
             "source": source_field,
             "target": target_field,

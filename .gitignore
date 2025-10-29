@@ -62,3 +62,5 @@ chroma_db/
 # environment
 .env
 .env.local
+.env.example
+REFACTOR_PLAN.md

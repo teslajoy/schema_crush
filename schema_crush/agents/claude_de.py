@@ -22,7 +22,7 @@ class ClaudeDataEngineer:
 
         args:
             agent_path: path to agent definition markdown file
-            api_key: anthropic api key (defaults to ANTHROPIC_API_KEY env var)
+            api_key: anthropic api key (defaults to anthropic_api_key env var)
         """
         if agent_path is None:
             agent_path = Path(__file__).parent / "data_engineer.md"

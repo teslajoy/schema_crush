@@ -17,7 +17,7 @@ def cli():
 def map_schema(source, target):
     """map source schema to target schema."""
     click.echo(f"mapping {source} to {target}...")
-    # TODO: implement mapping logic
+    # todo: implement mapping logic
 
 
 @cli.command()
@@ -25,7 +25,7 @@ def map_schema(source, target):
 def load_csv(csv_path):
     """load and analyze csv file."""
     click.echo(f"loading {csv_path}...")
-    # TODO: implement csv loading
+    # todo: implement csv loading
 
 
 if __name__ == "__main__":
