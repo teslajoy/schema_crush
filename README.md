@@ -1,6 +1,12 @@
-# schema_crush
+# Schema Crush
+  <p align="">
+    <img src="./img/schema_crush.png" alt="mapping" width="150"/>
+  </p>
 
 schema_crush is a modular framework for semantic schema matching that leverages multi-agent embedders (BioBERT, Magneto) and human-in-the-loop validation to align heterogeneous biomedical schemas. It supports 3-tier matching (entity, field, content) with weighted embedder fusion, confidence-based routing, and automated reporting. 
+
+![Status](https://img.shields.io/badge/Status-Build%20Passing-lgreen)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## install
 
