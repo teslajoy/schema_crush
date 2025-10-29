@@ -423,8 +423,8 @@ mappings:
 
 ### not yet implemented
 
-1. **mapping_loader** - load existing crdc/htan/gdc mappings into vector store for learning
-2. **chromadb vector store** - store successful mappings for similarity search
+1. **mapping_rules infrastructure** - structured composite mapping rules from htan/gdc
+2. **chromadb vector store** - semantic retrieval layer for fuzzy matching
 3. **claude llm agent** - anthropic agent for data profiling (data_engineer.md exists as reference)
 4. **settings.yaml** - configuration file for weights/thresholds
 5. **content-level value mapping** - terminology mapping (tier 3 does name+values, not value -> code)
@@ -495,3 +495,180 @@ mappings:
    - fine-tune magneto/biobert on gdc->fhir mappings
    - use synthetic data generation (llm-based) from magneto paper approach
    - evaluate: does synthia-generated fhir data improve generalization?
+
+## 9. hybrid mapping rules architecture
+
+### conceptual alignment
+
+the system uses a hybrid approach combining structured rules with vector retrieval:
+
+layer | component | purpose
+------|-----------|--------
+structured knowledge | mapping_rules/ | authoritative composite mappings (entity + field + reference + content)
+semantic retrieval | retrieval/ | convert rules -> text -> vector for fuzzy search
+reasoning integration | pearl orchestrator | retrieve + lookup + combine scores
+
+### implementation flow
+
+step | component | description
+-----|-----------|-------------
+1. rule foundation | mapping_rules/ | build mappingrule, reference, fieldmapping dataclasses and parsers
+2. vector layer | retrieval/ | embed each mappingrule -> chromadb for similarity retrieval
+3. hybrid reasoning | pearl orchestrator | query vector store -> candidate ids -> fetch from ruledatabase -> combine scores
+
+### directory structure addition
+
+```
+schema_crush/
+├── mapping_rules/              # structured composite mapping rules
+│   ├── __init__.py
+│   ├── base_rule.py           # mappingrule, reference, fieldmapping dataclasses
+│   ├── rule_database.py       # store/query rules (sqlite/json)
+│   ├── htan_rule_parser.py    # parse htan mappings.json -> mappingrule[]
+│   └── gdc_rule_parser.py     # parse gdc case.json/file.json -> mappingrule[]
+└── retrieval/                  # semantic retrieval layer (optional next)
+    ├── __init__.py
+    ├── vector_store.py         # chromadb wrapper
+    ├── rule_embedder.py        # embed mappingrule -> text -> vector
+    └── semantic_search.py      # query interface
+```
+
+### mapping rule structure
+
+composite rules capture multi-layered fhir logic:
+
+```python
+@dataclass
+class mappingrule:
+    """composite mapping rule with context."""
+
+    # tier 1: entity/concept level
+    source_node: str                    # "bts:urinebiospcimentype"
+    target_resource: str                # "observation"
+    subclass_of: optional[str]          # "bts:biospecimen"
+
+    # tier 2: relationship context
+    references: list[reference]         # observation.focus -> specimen
+    category: list[str]                 # ["specimen", "laboratory"]
+
+    # tier 3: field mappings
+    field_mappings: list[fieldmapping]  # component[valuestring]
+
+    # metadata
+    confidence: float = 1.0             # from human-curated source
+    source: str = "htan"                # provenance
+    rule_id: str                        # unique identifier
+```
+
+### example htan composite mapping
+
+from htan mappings.json:
+
+```json
+{
+  "node": "bts:urinebiospcimentype",
+  "fhir:resourcetype": "observation",
+  "fhir:reference": [{"fhir:resourcetype": "specimen", "fhir:field": "focus"}],
+  "fhir:fieldmapping": [{
+    "fhir:field": "component",
+    "fhir:system": "https://humantumoratlas.org/urinebiospcimentype",
+    "fhir:type": "valuestring",
+    "fhir:code": "urinebiospcimentype",
+    "fhir:category": "laboratory"
+  }],
+  "rdfs:subclassof": "bts:biospecimen"
+}
+```
+
+parses to:
+
+```python
+mappingrule(
+    source_node="bts:urinebiospcimentype",
+    target_resource="observation",
+    subclass_of="bts:biospecimen",
+    references=[reference(resource="specimen", field="focus")],
+    category=["specimen"],
+    field_mappings=[
+        fieldmapping(
+            field="component",
+            type="valuestring",
+            system="https://humantumoratlas.org/urinebiospcimentype",
+            code="urinebiospcimentype",
+            category="laboratory"
+        )
+    ],
+    confidence=1.0,
+    source="htan",
+    rule_id="htan_urinebiospcimentype"
+)
+```
+
+### how pearl uses hybrid retrieval
+
+```python
+reason (tier 1 - entity):
+  1. vector search (fuzzy):
+     query: "biospecimen urine sample"
+     -> retrieve top-5 similar htan nodes
+     -> [bts:urinebiospcimentype, bts:biospecimen, ...]
+
+  2. rule database (structured):
+     lookup: mappingrule(source_node="bts:urinebiospcimentype")
+     -> get full composite rule with references + field_mappings
+
+  3. combine:
+     embedder_score: 0.87 (biobert similarity)
+     rule_match_score: 1.0 (exact match in database)
+     vector_similarity: 0.92 (chromadb retrieval)
+     final_score: 0.87 * 0.3 + 1.0 * 0.5 + 0.92 * 0.2 = 0.95
+
+reason (tier 2 - field):
+  1. vector search:
+     query: "specimen collection date"
+     -> retrieve: specimen.collection.collectedDateTime
+
+  2. rule database:
+     filter: rules where target_resource="specimen"
+             and field_mappings contains "collection"
+     -> get structured field mapping with type, system, code
+
+  3. combine scores and validate type constraints
+
+reason (tier 3 - content):
+  1. use embedders on field values
+  2. validate against rule field_mappings (type constraints)
+     ex., if rule says "valuestring", reject numeric match
+```
+
+### phased implementation
+
+phase | tasks | deliverable
+------|-------|-------------
+1. structured rules | create base_rule.py, htan_rule_parser.py, gdc_rule_parser.py, rule_database.py | 1,253 structured rules loaded and queryable
+2. vector retrieval | create vector_store.py, rule_embedder.py, semantic_search.py | fuzzy search -> structured composite rules
+3. pearl integration | update reasonagent to use hybrid retrieval, combine scores | working pearl with hybrid matching
+
+### data sources
+
+source | location | count | structure
+-------|----------|-------|----------
+htan mappings | data/resources/htan_mapping/mappings.json | 1023 | composite rules with resource + references + field_mappings
+gdc case mappings | data/resources/gdc_mapping/case.json | 122 | entity -> fhir patient with demographic extensions
+gdc file mappings | data/resources/gdc_mapping/file.json | 68 | entity -> fhir documentreference
+gdc project mappings | data/resources/gdc_mapping/project.json | 40 | entity -> fhir researchstudy
+
+total: 1,253 curated composite mapping rules
+
+### performance comparison (gdc evaluation, 20 test fields)
+
+matcher | precision@1 | recall@5 | f1 score | confidence range | notes
+--------|-------------|----------|----------|------------------|-------
+biobert | 5% (1/20) | 15% (3/20) | 0.0750 | 0.79-0.93 | overconfident - high scores but poor accuracy. general biomedical embeddings don't understand schema structure.
+magneto | 25% (5/20) | 65% (13/20) | 0.3611 | 0.25-0.72 | best performer - trained on gdc schema matching. calibrated confidence matches actual accuracy.
+rulematcher | 15% (3/20) | 30% (6/20) | 0.2000 | 0.90 (uniform) | knowledge-based matching using composite rules. needs scoring tuning - too generous with tier 1 matches.
+
+**Key insight**: high confidence ≠ high accuracy. biobert's 0.90 confidence maps to ~5% accuracy, while magneto's 0.53 confidence maps to actual correctness. phase 3 learning will calibrate confidence scores based on historical performance.
+
+**Next steps:** The RuleMatcher scoring needs refinement - it's too generous with tier 1 matches. could tune the tier weights or implement more sophisticated scoring, but that can
+  wait for phase 2 when we have agents that can learn optimal weights. onward... 
