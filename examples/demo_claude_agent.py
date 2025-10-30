@@ -45,7 +45,7 @@ def demo_claude_field_matching():
         "Procedure.code",
         "Specimen.container.type"
     ]
-    context = {"ground_truth": "Specimen.collection.method"}
+    context = {"ground_truth": "Specimen.processing.method"}
 
     print(f"\ntask: map '{source_field}' to fhir field")
     print(f"candidates: {', '.join(candidate_targets)}")
@@ -127,11 +127,66 @@ def demo_claude_entity_matching():
         print(f"\nerror during llm call: {e}")
 
 
+def demo_claude_generative_mode():
+    """demonstrate claude agent discovering candidates itself (generative mode)."""
+    import time
+
+    # check for api key
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("error: ANTHROPIC_API_KEY environment variable not set")
+        return
+
+    print("\n[generative mode] initializing claude agent...")
+    print("="*70)
+
+    start = time.time()
+    agent = ClaudeAgent(task="field")
+    init_time = time.time() - start
+    print(f"initialization complete ({init_time:.2f}s)\n")
+
+    # test mapping task - NO candidates provided
+    source_field = "tissue_preservation_method"
+    context = {"ground_truth": "Specimen.processing"}
+
+    print(f"\ntask: map '{source_field}' to fhir field")
+    print(f"mode: generative (no candidates provided - claude explores schema)")
+    print(f"ground truth (from htan kb): {context['ground_truth']}")
+    print("\n" + "="*70)
+    print("\nclaude agent exploring schema and reasoning...")
+    print("-"*70)
+
+    try:
+        # get proposals from claude - NO candidates
+        proposals = agent.propose_mappings(source_field, candidate_targets=None, context=context)
+
+        print(f"\nclaudeagent proposals ({len(proposals)}):\n")
+        for i, prop in enumerate(proposals, 1):
+            print(f"{i}. target: {prop.target_field}")
+            print(f"   confidence: {prop.confidence:.3f}")
+            print(f"\n   full reasoning:\n{prop.reasoning}\n")
+
+        print("="*70)
+        print(f"\nground truth: {context['ground_truth']}")
+        print(f"claude chose: {proposals[0].target_field if proposals else 'none'}")
+        print(f"match: {context['ground_truth'] in proposals[0].target_field if proposals else False}")
+
+    except Exception as e:
+        print(f"\nerror during llm call: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 if __name__ == '__main__':
     print("claude llm agent demo\n")
 
-    # demo field matching
+    # demo constrained mode (with candidates)
+    print("\n### mode 1: constrained (ranking from candidates) ###")
     demo_claude_field_matching()
+
+    # demo generative mode (no candidates)
+    print("\n\n### mode 2: generative (discovering candidates) ###")
+    demo_claude_generative_mode()
 
     # demo entity matching
     # demo_claude_entity_matching()

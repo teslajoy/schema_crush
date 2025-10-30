@@ -33,12 +33,16 @@ FIELD_MATCHING_PROMPT = """you are an expert in biomedical schema field mapping.
 
 task: map a source field to a fhir resource field path.
 
-you have access to three matching tools:
-1. biobert_match - biomedical semantic similarity
-2. magneto_match - schema structure patterns (trained on gdc->fhir)
-3. rule_match - knowledge base rules (htan/gdc expert mappings)
+you have access to five tools:
+1. search_fhir_fields - search for fields across all fhir resources by keyword
+2. explore_fhir_resource - get all fields for a specific fhir resource
+3. biobert_match - biomedical semantic similarity (requires candidates list)
+4. magneto_match - schema structure patterns (requires candidates list, trained on gdc->fhir)
+5. rule_match - knowledge base rules (requires candidates list, htan/gdc expert mappings)
 
 guidelines:
+- first, use search_fhir_fields or explore_fhir_resource to discover potential target fields
+- then use magneto_match/biobert_match/rule_match to score the candidates you found
 - prioritize magneto for field name matching (it's trained on this)
 - use biobert for semantic validation
 - check rules for established patterns
@@ -141,8 +145,8 @@ class ClaudeAgent(AutonomousAgent):
     def propose_mappings(
         self,
         source_field: str,
-        candidate_targets: List[str],
-        context: dict
+        candidate_targets: Optional[List[str]] = None,
+        context: dict = None
     ) -> List[MappingProposal]:
         """use llm with tools to propose mappings.
 
@@ -155,10 +159,17 @@ class ClaudeAgent(AutonomousAgent):
             list of mapping proposals with llm reasoning
         """
         from langchain_core.messages import ToolMessage
-        from schema_crush.orchestrator.agents.tools import biobert_match, magneto_match, rule_match
+        from schema_crush.orchestrator.agents.tools import (
+            biobert_match, magneto_match, rule_match,
+            explore_fhir_resource, search_fhir_fields
+        )
 
-        # construct query for llm
-        user_message = f"""map this source to the best target:
+        context = context or {}
+
+        # construct query for llm based on mode (constrained vs generative)
+        if candidate_targets:
+            # constrained mode: ranking from pre-provided candidates
+            user_message = f"""map this source to the best target:
 
 source: {source_field}
 
@@ -170,6 +181,23 @@ use the available tools to gather evidence, then provide your final recommendati
 CHOSEN TARGET: [exact target from list]
 CONFIDENCE: [0.0-1.0]
 REASONING: [detailed explanation]
+"""
+        else:
+            # generative mode: discover and generate candidates
+            user_message = f"""map this source field to the appropriate fhir field:
+
+source: {source_field}
+
+use the available tools to:
+1. search for potential target fields using search_fhir_fields or explore_fhir_resource
+2. score the discovered candidates using magneto_match, biobert_match, or rule_match
+3. choose the best match
+
+provide your final recommendation in this exact format:
+
+CHOSEN TARGET: [full fhir path like resource.field]
+CONFIDENCE: [0.0-1.0]
+REASONING: [detailed explanation including what you discovered and why]
 """
 
         # add ground truth if available (for learning)
@@ -189,10 +217,12 @@ REASONING: [detailed explanation]
         tool_map = {
             'biobert_match': biobert_match,
             'magneto_match': magneto_match,
-            'rule_match': rule_match
+            'rule_match': rule_match,
+            'explore_fhir_resource': explore_fhir_resource,
+            'search_fhir_fields': search_fhir_fields
         }
 
-        max_iterations = 5  # prevent infinite loops
+        max_iterations = 10  # increased for generative mode workflow
         iteration = 0
 
         while hasattr(response, 'tool_calls') and response.tool_calls and iteration < max_iterations:
@@ -285,7 +315,7 @@ REASONING: [detailed explanation]
             reasoning = reasoning_match.group(1).strip()
 
         # fallback: if no structured format, look for target in content
-        if not chosen_target:
+        if not chosen_target and candidate_targets:
             for target in candidate_targets:
                 if target in content:
                     chosen_target = target
@@ -293,7 +323,15 @@ REASONING: [detailed explanation]
 
         # final fallback
         if not chosen_target:
-            chosen_target = candidate_targets[0] if candidate_targets else "unknown"
+            if candidate_targets:
+                chosen_target = candidate_targets[0]
+            else:
+                # in generative mode, try to extract resource.field pattern from content
+                pattern_match = re.search(r'\b([A-Z][a-z]+)\.([a-z_]+(?:\.[a-z_]+)*)\b', content)
+                if pattern_match:
+                    chosen_target = pattern_match.group(0)
+                else:
+                    chosen_target = "unknown"
 
         # create proposal
         proposals = [MappingProposal(

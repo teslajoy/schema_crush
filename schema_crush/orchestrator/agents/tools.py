@@ -1,6 +1,6 @@
 """tool definitions for claude agent to use matchers."""
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from langchain_core.tools import tool
 from schema_crush.tools.matchers import BioBERTMatcher, MagnetoMatcher, RuleMatcher
 
@@ -106,6 +106,77 @@ def rule_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
     return enriched_results
 
 
+@tool
+def explore_fhir_resource(resource_type: str) -> Dict[str, Any]:
+    """explore a fhir resource to see its available fields.
+
+    use this when you need to discover what fields are available for a fhir resource
+    before making a mapping decision.
+
+    args:
+        resource_type: fhir resource name (e.g., "patient", "specimen", "observation")
+
+    returns:
+        dict with resource fields and description
+    """
+    from schema_crush.tools.fhir_schema_tool import get_schema_explorer
+
+    print(f"[linkml query] explore_fhir_resource('{resource_type}')")
+
+    explorer = get_schema_explorer()
+    fields = explorer.get_resource_fields(resource_type)
+    description = explorer.get_resource_description(resource_type)
+
+    if not fields:
+        # try to find similar resources
+        all_resources = explorer.get_all_resources()
+        similar = [r for r in all_resources if resource_type.lower() in r.lower()]
+        result = {
+            "error": f"resource '{resource_type}' not found",
+            "similar_resources": similar[:5],
+            "total_resources": len(all_resources)
+        }
+        print(f"[linkml result] resource not found, suggested {len(similar)} similar")
+        return result
+
+    result = {
+        "resource": resource_type,
+        "fields": fields[:30],  # limit to first 30 fields
+        "total_fields": len(fields),
+        "description": description[:200] if description else "no description available"
+    }
+    print(f"[linkml result] found {len(fields)} fields for {resource_type}")
+    return result
+
+
+@tool
+def search_fhir_fields(search_term: str, resource_filter: Optional[str] = None) -> List[Dict[str, str]]:
+    """search for fhir fields matching a term across all resources.
+
+    use this to find potential target fields when you're not sure which
+    resource or field path to use.
+
+    args:
+        search_term: keyword to search for (e.g., "method", "date", "identifier")
+        resource_filter: optional resource to filter results (e.g., "specimen")
+
+    returns:
+        list of matching field paths with their resources
+    """
+    from schema_crush.tools.fhir_schema_tool import get_schema_explorer
+
+    filter_msg = f" in {resource_filter}" if resource_filter else " across all resources"
+    print(f"[linkml query] search_fhir_fields('{search_term}'{filter_msg})")
+
+    explorer = get_schema_explorer()
+    results = explorer.search_fields(search_term, resource_filter)
+
+    # limit results and format
+    limited_results = results[:20]
+    print(f"[linkml result] found {len(results)} matches, returning top {len(limited_results)}")
+    return limited_results
+
+
 def warmup_matchers():
     """pre-load all matchers to avoid first-call latency.
 
@@ -120,4 +191,4 @@ def warmup_matchers():
 
 
 # export tools for agent
-MAPPING_TOOLS = [biobert_match, magneto_match, rule_match]
+MAPPING_TOOLS = [biobert_match, magneto_match, rule_match, explore_fhir_resource, search_fhir_fields]
