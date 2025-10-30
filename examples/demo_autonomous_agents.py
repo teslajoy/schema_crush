@@ -43,21 +43,21 @@ def demo_multi_agent_proposals():
     print("\n" + "="*70)
 
     # collect proposals from all agents
-    print("\n📊 BIOBERT AGENT PROPOSALS:")
+    print("\n - BIOBERT AGENT PROPOSALS:")
     print("-"*70)
     biobert_proposals = biobert_agent.propose_mappings(source_field, candidate_targets, context)
     for i, prop in enumerate(biobert_proposals[:3], 1):
         print(f"{i}. {prop.target_field} (confidence: {prop.confidence:.3f})")
         print(f"   reasoning: {prop.reasoning}\n")
 
-    print("\n📊 MAGNETO AGENT PROPOSALS:")
+    print("\n - MAGNETO AGENT PROPOSALS:")
     print("-"*70)
     magneto_proposals = magneto_agent.propose_mappings(source_field, candidate_targets, context)
     for i, prop in enumerate(magneto_proposals[:3], 1):
         print(f"{i}. {prop.target_field} (confidence: {prop.confidence:.3f})")
         print(f"   reasoning: {prop.reasoning}\n")
 
-    print("\n📊 RULE AGENT PROPOSALS:")
+    print("\n - RULE AGENT PROPOSALS:")
     print("-"*70)
     rule_proposals = rule_agent.propose_mappings(source_field, candidate_targets, context)
     for i, prop in enumerate(rule_proposals[:3], 1):
@@ -96,8 +96,8 @@ def demo_multi_agent_proposals():
         print(f"  confidences: {', '.join(f'{c:.3f}' for c in target_confidences[target])}\n")
 
     print("="*70)
-    print("\n✅ ground truth: Patient.id")
-    print(f"✅ top consensus: {consensus_targets[0][0]} ({consensus_targets[0][1]}/3 agents)")
+    print("\nground truth: Patient.id")
+    print(f"top consensus: {consensus_targets[0][0]} ({consensus_targets[0][1]}/3 agents)")
 
 
 if __name__ == '__main__':

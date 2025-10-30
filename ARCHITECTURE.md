@@ -7,39 +7,88 @@ schema mapping system using multi-agent ai with langgraph for orchestration.
 ## directory structure
 
 ```
-schema_crush/                    # repo root
-├── requirements.txt             # python dependencies
-├── ARCHITECTURE.md              # this file
-└── schema_crush/                # python package
+schema_crush/                          # repo root
+├── requirements.txt                   # python dependencies
+├── setup.py                           # package installation config
+├── ARCHITECTURE.md                    # this file
+├── README.md                          # project documentation
+├── .gitignore                         # git ignore patterns
+├── .env                               # environment variables (api keys)
+├── examples/                          # demo scripts and evaluations
+│   ├── demo_claude_agent.py           # claude agent demo with tool use
+│   ├── demo_autonomous_agents.py      # multi-agent consensus demo
+│   ├── evaluate_gdc_embedders.py      # embedder evaluation on gdc data
+│   ├── evaluate_rule_matcher.py       # rule matcher evaluation
+│   └── view_rules.py                  # interactive rule viewer
+├── tests/                             # pytest test suite
+│   ├── test_claude_agent.py           # claude agent tests
+│   ├── test_autonomous_agents.py      # multi-agent tests
+│   ├── test_biobert_embedder.py       # biobert embedder tests
+│   ├── test_magneto_embedder.py       # magneto embedder tests
+│   ├── test_matchers.py               # matcher interface tests
+│   ├── test_mapping_rules.py          # mapping rules tests
+│   ├── test_pearl_agent.py            # pearl orchestrator tests
+│   └── test_pearl_agent_hitl.py       # hitl workflow tests
+├── img/                               # images and diagrams
+│   └── schema_crush.png               # project logo
+├── legacy/                            # archived/unused code
+│   └── agents/                        # initial agent designs (not used)
+│       ├── base.py                    # base agent interface
+│       ├── data_profiler.py           # rule-based data profiler
+│       ├── claude_de.py               # claude data engineer (reference)
+│       └── data_engineer.md           # data engineer prompt
+└── schema_crush/                      # main python package
     ├── __init__.py
-    ├── cli.py                   # command line interface
-    ├── loaders/                 # universal data and mapping loaders
-    │   ├── base.py              # base loader interface
-    │   ├── data_loader.py       # csv/excel/json data loader
-    │   ├── mapping_loader.py    # universal mapping format loader
-    │   └── __init__.py
-    ├── agents/                  # three core agents
-    │   ├── base.py              # base agent interface
-    │   ├── data_profiler.py     # rule-based data profiling agent
-    │   ├── claude_de.py         # anthropic claude data engineer agent
-    │   ├── data_engineer.md     # claude agent system prompt
-    │   ├── biomni.py            # biomedical knowledge graph agent
-    │   ├── magneto.py           # pattern matching + meta-learning agent
-    │   └── __init__.py
-    ├── orchestrator/            # langgraph pearl loop orchestrator
-    │   ├── graph.py             # langgraph state machine
-    │   ├── state.py             # shared state definitions
-    │   └── __init__.py
-    ├── config/                  # configuration files
-    │   └── settings.yaml        # agent weights and thresholds
-    └── data/                    # data directory
-        ├── examples/            # example csv files
+    ├── cli.py                         # command line interface
+    ├── loaders/                       # data loaders
+    │   ├── __init__.py
+    │   ├── base.py                    # base loader interface
+    │   └── csv_loader.py              # csv file loader
+    ├── orchestrator/                  # multi-agent orchestration
+    │   ├── __init__.py
+    │   ├── pearl_agent.py             # pearl loop orchestrator (langgraph)
+    │   └── agents/                    # autonomous agents (active)
+    │       ├── __init__.py
+    │       ├── base_agent.py          # autonomous agent interface
+    │       ├── claude_agent.py        # claude llm agent with tool use
+    │       └── tools.py               # langchain tools for matchers
+    ├── tools/                         # matching tools
+    │   ├── __init__.py
+    │   ├── embeddings/                # embedding models
+    │   │   ├── __init__.py
+    │   │   ├── biobert_embedder.py    # biobert biomedical embeddings
+    │   │   └── magneto_embedder.py    # magneto schema embeddings
+    │   └── matchers/                  # matching implementations
+    │       ├── __init__.py
+    │       ├── base.py                # base matcher interface
+    │       ├── biobert_matcher.py     # biobert-based matcher
+    │       ├── magneto_matcher.py     # magneto-based matcher
+    │       └── rule_matcher.py        # knowledge base rule matcher
+    ├── knowledge/                     # knowledge base
+    │   ├── __init__.py
+    │   └── mapping_rules/             # structured mapping rules
+    │       ├── __init__.py
+    │       ├── base.py                # rule dataclasses (MappingRule, Reference, FieldMapping)
+    │       ├── database.py            # rule database (RuleDatabase)
+    │       ├── htan_parser.py         # htan mappings.json parser
+    │       └── gdc_parser.py          # gdc mappings parser
+    ├── reporting/                     # result reporting
+    │   ├── __init__.py
+    │   └── mapping_report.py          # mapping report generator
+    ├── config/                        # configuration
+    │   └── settings.yaml              # agent weights and thresholds
+    └── data/                          # data directory
+        ├── examples/                  # example csv files
         │   ├── case.csv
         │   ├── biospecimen.csv
         │   └── file.csv
-        ├── resources/           # existing mappings
-        │   └── mappings.json
-        └── vector_store/        # chromadb embeddings (to be created)
+        └── resources/                 # knowledge base resources
+            ├── gdc_mapping/           # gdc -> fhir mappings
+            │   ├── case.json          # case/patient mappings (122 rules)
+            │   ├── file.json          # file mappings (68 rules)
+            │   └── project.json       # project mappings (40 rules)
+            └── htan_mapping/          # htan -> fhir mappings
+                └── mappings.json      # composite rules (1050 rules)
 ```
 
 ## 1. universal loader architecture
