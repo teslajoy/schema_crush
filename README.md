@@ -169,6 +169,8 @@ schema_crush/
 
 | planned | status | notes |
 |---------|--------|-------|
+| mapping workbench | design done | drag-drop ui for hitl review, see docs/MAPPING_WORKBENCH.md |
+| fhir aggregator training | not started | learn from real fhir data (patterns, codes, references) |
 | mcp server | not started | expose as model context protocol server for claude desktop/code |
 | chromadb persistence | in-memory only | not persisted to disk |
 | synthia integration | not started | synthetic fhir data generation |
