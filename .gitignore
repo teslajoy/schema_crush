@@ -70,8 +70,10 @@ chroma_db/
 !README.md
 markdown/
 
-# calibration logs
+# calibration logs and pkl files
 calibrators/calibration_logs/
+calibrators/pkl/
+*.pkl
 
 # data files (keep structure with .gitkeep)
 schema_crush/data/db/
