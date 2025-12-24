@@ -5,38 +5,57 @@ from langchain_core.tools import tool
 from schema_crush.tools.matchers import BioBERTMatcher, MagnetoMatcher, RuleMatcher
 
 
-# initialize matchers (singleton pattern)
-_biobert_matcher = None
-_magneto_matcher = None
-_rule_matcher = None
+# singleton knowledge base
+_knowledge_base = None
+
+
+def get_knowledge_base():
+    """get singleton knowledge base instance."""
+    global _knowledge_base
+    if _knowledge_base is None:
+        from schema_crush.learning.knowledge_base import KnowledgeBase
+        _knowledge_base = KnowledgeBase.load()
+        print("loaded knowledge base (db, calibrators, vectors)")
+    return _knowledge_base
 
 
 def get_biobert_matcher():
-    """get singleton biobert matcher instance."""
-    global _biobert_matcher
-    if _biobert_matcher is None:
-        _biobert_matcher = BioBERTMatcher()
-    return _biobert_matcher
+    """get biobert matcher from knowledge base."""
+    kb = get_knowledge_base()
+    if not hasattr(kb, '_biobert_matcher') or kb._biobert_matcher is None:
+        kb._biobert_matcher = BioBERTMatcher(use_expert_embeddings=True)
+    return kb._biobert_matcher
 
 
 def get_magneto_matcher():
-    """get singleton magneto matcher instance."""
-    global _magneto_matcher
-    if _magneto_matcher is None:
-        _magneto_matcher = MagnetoMatcher()
-    return _magneto_matcher
+    """get magneto matcher from knowledge base."""
+    kb = get_knowledge_base()
+    if not hasattr(kb, '_magneto_matcher') or kb._magneto_matcher is None:
+        kb._magneto_matcher = MagnetoMatcher(use_expert_embeddings=True)
+    return kb._magneto_matcher
 
 
 def get_rule_matcher():
-    """get singleton rule matcher instance."""
-    global _rule_matcher
-    if _rule_matcher is None:
-        from schema_crush.knowledge.mapping_rules import RuleDatabase, load_htan_rules, load_gdc_rules
-        db = RuleDatabase()
-        db.add_rules(load_htan_rules())
-        db.add_rules(load_gdc_rules())
-        _rule_matcher = RuleMatcher(db)
-    return _rule_matcher
+    """get rule matcher from knowledge base."""
+    kb = get_knowledge_base()
+    if not hasattr(kb, '_rule_matcher') or kb._rule_matcher is None:
+        kb._rule_matcher = RuleMatcher(kb.db)
+    return kb._rule_matcher
+
+
+def apply_calibration(matcher_name: str, raw_score: float, tier: str = None) -> float:
+    """apply calibration to raw matcher score via knowledge base.
+
+    args:
+        matcher_name: name of matcher ("biobert", "magneto", "rule")
+        raw_score: raw confidence score from matcher
+        tier: optional tier for tier-specific calibration ("entity", "field", "content")
+
+    returns:
+        calibrated score (or raw score if no calibration available)
+    """
+    kb = get_knowledge_base()
+    return kb.calibrate(matcher_name, raw_score, tier)
 
 
 @tool
@@ -45,16 +64,28 @@ def biobert_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
 
     best for: matching biomedical concepts and terminology.
 
+    note: scores are calibrated based on historical accuracy (96.9% accuracy when confident).
+
     args:
         source: source field or term to match
         candidates: list of candidate target fields/terms
 
     returns:
-        list of matches with scores, sorted by confidence
+        list of matches with calibrated scores, sorted by confidence
     """
     matcher = get_biobert_matcher()
     results = matcher.match(source, candidates)
-    return [{"target": tgt, "score": float(score)} for tgt, score in results[:5]]
+
+    # apply calibration to scores
+    calibrated_results = []
+    for tgt, raw_score in results[:5]:
+        calibrated_score = apply_calibration("biobert", raw_score)
+        calibrated_results.append({
+            "target": tgt,
+            "score": float(calibrated_score)
+        })
+
+    return calibrated_results
 
 
 @tool
@@ -63,16 +94,28 @@ def magneto_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
 
     best for: matching field names and schema structures (trained on gdc->fhir).
 
+    note: scores are calibrated based on historical accuracy (96.9% accuracy when confident).
+
     args:
         source: source field name to match
         candidates: list of candidate target field names
 
     returns:
-        list of matches with scores, sorted by confidence
+        list of matches with calibrated scores, sorted by confidence
     """
     matcher = get_magneto_matcher()
     results = matcher.match(source, candidates)
-    return [{"target": tgt, "score": float(score)} for tgt, score in results[:5]]
+
+    # apply calibration to scores
+    calibrated_results = []
+    for tgt, raw_score in results[:5]:
+        calibrated_score = apply_calibration("magneto", raw_score)
+        calibrated_results.append({
+            "target": tgt,
+            "score": float(calibrated_score)
+        })
+
+    return calibrated_results
 
 
 @tool
@@ -81,29 +124,28 @@ def rule_match(source: str, candidates: List[str]) -> List[Dict[str, Any]]:
 
     best for: leveraging existing expert mappings from htan/gdc knowledge base.
 
+    note: scores are calibrated based on historical accuracy.
+
     args:
         source: source field or entity name
         candidates: list of candidate target fields/resources
 
     returns:
-        list of matches with scores and supporting rules
+        list of matches with calibrated scores
     """
     matcher = get_rule_matcher()
     results = matcher.match(source, candidates)
 
-    # add rule evidence
-    enriched_results = []
-    for tgt, score in results[:5]:
-        rules = matcher.mapping_ruledb.find_by_source(source)
-        rule_count = len(rules)
-        enriched_results.append({
+    # apply calibration to scores
+    calibrated_results = []
+    for tgt, raw_score in results[:5]:
+        calibrated_score = apply_calibration("rule", raw_score)
+        calibrated_results.append({
             "target": tgt,
-            "score": float(score),
-            "rule_count": rule_count,
-            "sources": list(set(r.source for r in rules[:3]))
+            "score": float(calibrated_score),
         })
 
-    return enriched_results
+    return calibrated_results
 
 
 @tool

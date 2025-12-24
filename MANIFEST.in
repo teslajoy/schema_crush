@@ -1,5 +1,0 @@
-include README.md
-include requirements.txt
-include ARCHITECTURE.md
-recursive-include schema_crush/data *
-recursive-exclude schema_crush/data/vector_store *

@@ -59,8 +59,30 @@ models/
 vector_store/
 chroma_db/
 
+
 # environment
 .env
 .env.local
 .env.example
-REFACTOR_PLAN.md
+
+# markdown files (keep out of submission for now)
+*.md
+!README.md
+markdown/
+
+# calibration logs
+calibrators/calibration_logs/
+
+# data files (keep structure with .gitkeep)
+schema_crush/data/db/
+schema_crush/data/embeddings/
+schema_crush/data/examples/projects/
+schema_crush/data/raw_content_maps/
+
+# legacy and demo
+legacy/
+demo/
+
+# test files and legacy examples
+examples/test_*.py
+examples/legacy/

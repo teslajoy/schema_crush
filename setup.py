@@ -19,7 +19,7 @@ with open(readme_file, encoding="utf-8") as f:
 
 setup(
     name="schema_crush",
-    version="0.1.0",
+    version="0.2.0",
     description="semantic schema matching using multi-agent embedders with human-in-the-loop validation",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -30,9 +30,9 @@ setup(
     include_package_data=True,
     package_data={
         "schema_crush": [
-            "data/**/*",
-            "data/examples/*",
-            "data/resources/**/*",
+            "data/resources/gdc_mapping/*.json",
+            "data/resources/htan_mapping/*.json",
+            "data/resources/*.yaml",
         ],
     },
     install_requires=requirements,

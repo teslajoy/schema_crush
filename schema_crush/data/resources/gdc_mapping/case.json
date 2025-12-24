@@ -874,7 +874,7 @@
                 ]
             },
             "destination": {
-                "name": "Specimen.id.aliquot",
+                "name": "Specimen.identifier",
                 "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
                 "description_url": null,
                 "module": "Diagnostics",
@@ -906,7 +906,7 @@
                 ]
             },
             "destination": {
-                "name": "Specimen.ids.analyte",
+                "name": "Specimen.identifier",
                 "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
                 "description_url": null,
                 "module": "Diagnostics",
@@ -938,12 +938,12 @@
                 ]
             },
             "destination": {
-                "name": "Patient.id",
-                "description": "Logical id of this artifact",
+                "name": "Patient.identifier",
+                "description": "An identifier for this patient",
                 "description_url": null,
                 "module": "Administration",
-                "title": "Logical id of this artifact",
-                "type": "string",
+                "title": "An identifier for this patient",
+                "type": "array",
                 "format": null,
                 "reference": null
             }
@@ -984,7 +984,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.portion",
+                "name": "Specimen.identifier",
                 "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
                 "description_url": null,
                 "module": "Diagnostics",
@@ -1024,12 +1024,12 @@
                 ]
             },
             "destination": {
-                "name": "Specimen.id",
-                "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
+                "name": "Specimen.identifier",
+                "description": "External Identifier",
                 "description_url": null,
                 "module": "Diagnostics",
-                "title": "Logical id of this artifact",
-                "type": "string",
+                "title": "External Identifier",
+                "type": "array",
                 "format": null,
                 "reference": null
             }
@@ -1841,8 +1841,8 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.sample",
-                "description": null,
+                "name": "Specimen.identifier",
+                "description": "External Identifier",
                 "description_url": null,
                 "module": null,
                 "title": null,
@@ -1956,7 +1956,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.portion",
+                "name": "Specimen.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,
@@ -2094,7 +2094,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.analyte",
+                "name": "Specimen.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,
@@ -2807,7 +2807,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.aliquot",
+                "name": "Specimen.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,
@@ -3571,12 +3571,12 @@
                 "reference": null
             },
             "destination": {
-                "name": "ResearchStudy.id",
-                "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
+                "name": "ResearchStudy.identifier",
+                "description": "Business Identifier for study",
                 "description_url": null,
                 "module": "Administration",
-                "title": "Logical id of this artifact",
-                "type": "string",
+                "title": "Business Identifier for study",
+                "type": "array",
                 "format": null,
                 "reference": null
             }
@@ -3772,12 +3772,12 @@
                 "reference": null
             },
             "destination": {
-                "name": "ResearchStudy.id",
-                "description": "The logical id of the resource, as used in the URL for the resource. Once assigned, this value never changes.",
+                "name": "ResearchStudy.identifier",
+                "description": "Business Identifier for study",
                 "description_url": null,
                 "module": "Administration",
-                "title": "Logical id of this artifact",
-                "type": "string",
+                "title": "Business Identifier for study",
+                "type": "array",
                 "format": null,
                 "reference": null
             }

@@ -41,27 +41,48 @@ class FHIRSchemaExplorer:
             return []
         return list(self._schema['classes'].keys())
 
-    def get_resource_fields(self, resource_type: str) -> List[str]:
+    def get_resource_fields(self, resource_type: str, required_only: bool = False) -> List[str]:
         """get all fields for a specific fhir resource.
 
         args:
             resource_type: fhir resource name (case-insensitive)
+            required_only: if True, return only required fields
 
         returns:
             list of field names (slots) for the resource
         """
         # try exact match first
         classes = self._schema.get('classes', {})
+        class_def = None
+
         if resource_type in classes:
-            return classes[resource_type].get('slots', [])
+            class_def = classes[resource_type]
+        else:
+            # try case-insensitive match
+            resource_lower = resource_type.lower()
+            for class_name, definition in classes.items():
+                if class_name.lower() == resource_lower:
+                    class_def = definition
+                    break
 
-        # try case-insensitive match
-        resource_lower = resource_type.lower()
-        for class_name, class_def in classes.items():
-            if class_name.lower() == resource_lower:
-                return class_def.get('slots', [])
+        if not class_def:
+            return []
 
-        return []
+        slots = class_def.get('slots', [])
+
+        if not required_only:
+            return slots
+
+        # filter for required fields
+        slot_defs = self._schema.get('slots', {})
+        required_slots = []
+
+        for slot_name in slots:
+            slot_def = slot_defs.get(slot_name, {})
+            if slot_def.get('required', False):
+                required_slots.append(slot_name)
+
+        return required_slots
 
     def get_resource_description(self, resource_type: str) -> str:
         """get description for a fhir resource.

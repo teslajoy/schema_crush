@@ -870,7 +870,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Patient.id",
+                "name": "Patient.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,
@@ -916,7 +916,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.aliquots",
+                "name": "Specimen.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,
@@ -962,7 +962,7 @@
                 "reference": null
             },
             "destination": {
-                "name": "Specimen.id.samples",
+                "name": "Specimen.identifier",
                 "description": null,
                 "description_url": null,
                 "module": null,

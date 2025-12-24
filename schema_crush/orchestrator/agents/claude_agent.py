@@ -150,6 +150,9 @@ class ClaudeAgent(AutonomousAgent):
     ) -> List[MappingProposal]:
         """use llm with tools to propose mappings.
 
+        tries RuleMatcher first - if exact match (1.0), skips LLM to save tokens.
+        only calls Claude for uncertain cases.
+
         args:
             source_field: source field/entity/value to map
             candidate_targets: list of candidate targets
@@ -161,10 +164,46 @@ class ClaudeAgent(AutonomousAgent):
         from langchain_core.messages import ToolMessage
         from schema_crush.orchestrator.agents.tools import (
             biobert_match, magneto_match, rule_match,
-            explore_fhir_resource, search_fhir_fields
+            explore_fhir_resource, search_fhir_fields,
+            get_knowledge_base
         )
 
         context = context or {}
+        kb = get_knowledge_base()
+
+        # fast path: ALWAYS check knowledge base first, skip LLM if exact match
+        rule_results = kb.db.lookup(source_field)
+        if rule_results:
+            _, dest = rule_results[0]
+            # if candidates provided, verify match is in list
+            if candidate_targets:
+                dest_set = {d.destination.lower() for _, d in rule_results}
+                for target in candidate_targets:
+                    if target.lower() in dest_set:
+                        return [MappingProposal(
+                            source_field=source_field,
+                            target_field=target,
+                            confidence=1.0,
+                            reasoning="exact match from knowledge base (skipped llm)",
+                            supporting_evidence={"agent": self.name, "source": "knowledge_base"}
+                        )]
+            else:
+                # no candidates - return KB match directly
+                return [MappingProposal(
+                    source_field=source_field,
+                    target_field=dest.destination,
+                    confidence=1.0,
+                    reasoning="exact match from knowledge base (skipped llm)",
+                    supporting_evidence={"agent": self.name, "source": "knowledge_base"}
+                )]
+
+        # get similar mappings for few-shot context
+        similar = kb.find_similar(source_field, k=3)
+        few_shot_context = ""
+        if similar:
+            few_shot_context = "\n\nsimilar mappings from knowledge base:\n"
+            for s in similar:
+                few_shot_context += f"  {s['source']} -> {s['target']} (similarity: {s['score']:.2f})\n"
 
         # construct query for llm based on mode (constrained vs generative)
         if candidate_targets:
@@ -175,7 +214,7 @@ source: {source_field}
 
 candidate targets:
 {chr(10).join(f"  - {t}" for t in candidate_targets)}
-
+{few_shot_context}
 use the available tools to gather evidence, then provide your final recommendation in this exact format:
 
 CHOSEN TARGET: [exact target from list]
@@ -187,7 +226,7 @@ REASONING: [detailed explanation]
             user_message = f"""map this source field to the appropriate fhir field:
 
 source: {source_field}
-
+{few_shot_context}
 use the available tools to:
 1. search for potential target fields using search_fhir_fields or explore_fhir_resource
 2. score the discovered candidates using magneto_match, biobert_match, or rule_match
