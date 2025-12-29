@@ -53,6 +53,18 @@ python examples/evaluate_gdc_embedders.py
 | htan | human tumor atlas network -> fhir mappings |
 | others | additional fhir aggregator sources |
 
+## fhir aggregator data (available for training)
+
+| source | patients | specimens | observations | documents |
+|--------|----------|-----------|--------------|-----------|
+| gdc | 44,736 | 593,840 | 807,834 | 1,121,816 |
+| cda | 159,047 | 742,505 | 833,168 | - |
+| htan | 2,080 | 7,532 | 214,853 | 196,158 |
+| gtex | 980 | 43,559 | 1 | 49 |
+| icgc | 400 | 813 | 401 | 15,063 |
+| 1000genome | 3,500 | 3,500 | 1 | 48 |
+| cellosaurus | 1,677 | 1,717 | 1 | - |
+
 ## 3-tier matching strategy
 
 | tier | task | example |
