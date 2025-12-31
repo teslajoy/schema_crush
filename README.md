@@ -21,16 +21,34 @@ pip install -e .
 
 ## usage
 
-run the claude agent demo:
-
+map a csv file to fhir:
 ```bash
-python examples/demo_claude_agent.py
+python map_csv.py data.csv --entity patient -o mappings.json
 ```
 
-run the gdc embedder evaluation:
+entity types:
+- `patient` -> Patient, Condition, Observation
+- `sample` -> Specimen, Observation
+- `file` -> DocumentReference, Observation
 
+output:
+```json
+[
+  {"source": "patient_id", "target": "Patient.identifier", "confidence": 1.0},
+  {"source": "diagnosis", "target": "Condition.code", "confidence": 0.85}
+]
+```
+
+options:
+```
+python map_csv.py data.csv -e patient              # print to stdout
+python map_csv.py data.csv -e sample -o out.json   # save to file
+python map_csv.py data.csv -e file -n 5            # limit to first 5 columns
+```
+
+run demos:
 ```bash
-python examples/evaluate_gdc_embedders.py
+python examples/demo_claude_agent.py
 ```
 
 ## core architecture
