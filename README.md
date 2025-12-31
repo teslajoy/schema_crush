@@ -101,6 +101,24 @@ python examples/evaluate_gdc_embedders.py
 | magneto | 25% | 65% | 13.3% | good for field names |
 | biobert | 5% | 15% | 8.2% | overconfident, needs calibration |
 
+## calibration results (dec 2025)
+
+tier-aware calibration on flat mapping database (2753 sources, 2970 destinations):
+
+| matcher | tier | accuracy | ece | notes |
+|---------|------|----------|-----|-------|
+| **rule** | entity | 51.9% | 0.481 | one-to-many: same source maps to multiple valid fhir resources |
+| **rule** | field | **92.0%** | 0.080 | well-calibrated |
+| **rule** | content | **99.4%** | 0.006 | excellent |
+| biobert | entity | 1.3% | 0.854 | overconfident |
+| biobert | field | 14.3% | 0.739 | needs calibration |
+| biobert | content | 4.8% | 0.770 | needs calibration |
+| magneto | entity | 3.8% | 0.288 | low but honest confidence |
+| magneto | field | 30.0% | 0.234 | good calibration at high confidence |
+| magneto | content | 14.6% | 0.082 | moderately calibrated |
+
+**note on entity tier**: the 51.9% accuracy reflects one-to-many mappings where a source term (e.g., `Assay`) correctly maps to multiple fhir resources (e.g., both `ServiceRequest` AND `DocumentReference.category.coding`). if ANY valid destination is returned, the mapping is correct.
+
 ## data flow
 
 ```
@@ -176,6 +194,17 @@ schema_crush/
 ├── loaders/                # csv loader (limited)
 └── data/resources/         # gdc/htan json mappings, linkml schema
 ```
+
+## loaders
+
+| loader | input | output | use case |
+|--------|-------|--------|----------|
+| `flat_loader` | sqlite db | `FlatMappingDatabase` | primary loader - o(1) lookup for all mappings |
+| `curated_loader` | `data/resources/gdc_mapping/*.json` | sources + destinations | expert-curated gdc/htan->fhir rules |
+| `fhir_aggregator_loader` | fhir ndjson files | `SourceDestinationPair` list | extract patterns from real fhir data |
+| `project_loader` | project configs | schema metadata | load source schemas for mapping |
+
+data flow: `curated_loader` + `fhir_aggregator_loader` → `normalizer` -> `flat_loader` (sqlite)
 
 ## what's missing
 

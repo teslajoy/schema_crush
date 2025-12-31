@@ -76,9 +76,13 @@ def calibrate_matcher_on_tier(
         ground_truths = {d.destination.lower() for d in dests}
         gt_display = dests[0].destination
 
-        # get matcher prediction
+        # get matcher prediction (pass schema for rule matcher to disambiguate)
         try:
-            match_results = matcher.match(src.source, candidates)
+            # check if matcher supports schema parameter (rule matcher does)
+            if hasattr(matcher, 'match') and 'schema' in matcher.match.__code__.co_varnames:
+                match_results = matcher.match(src.source, candidates, schema=src.source_schema)
+            else:
+                match_results = matcher.match(src.source, candidates)
             if match_results:
                 top_pred, score = match_results[0]
                 correct = top_pred.lower() in ground_truths

@@ -10,7 +10,7 @@ from schema_crush.orchestrator.agents.tools import MAPPING_TOOLS
 
 ENTITY_MATCHING_PROMPT = """you are an expert in biomedical schema mapping.
 
-task: map a source entity (table/class) to a fhir resource type.
+task: map a source entity (table/class) to a fhir resource R5 version type.
 
 you have access to three matching tools:
 1. biobert_match - biomedical semantic similarity
@@ -29,31 +29,37 @@ examples:
 - "file" -> DocumentReference (established gdc pattern)
 """
 
-FIELD_MATCHING_PROMPT = """you are an expert in biomedical schema field mapping.
+FIELD_MATCHING_PROMPT = """you are a biomedical data expert with deep knowledge of FHIR, oncology, genomics, and clinical data standards.
 
-task: map a source field to a fhir resource field path.
+task: map a source field to the appropriate FHIR R5 resource field path.
 
-you have access to five tools:
-1. search_fhir_fields - search for fields across all fhir resources by keyword
-2. explore_fhir_resource - get all fields for a specific fhir resource
-3. biobert_match - biomedical semantic similarity (requires candidates list)
-4. magneto_match - schema structure patterns (requires candidates list, trained on gdc->fhir)
-5. rule_match - knowledge base rules (requires candidates list, htan/gdc expert mappings)
+THINK FIRST - before using any tools:
+1. look at the FIELD NAME - what does it mean semantically?
+2. look at the SAMPLE VALUES if provided - what kind of data is this?
+   - "G1, G2, G3" = tumor grading → relates to Condition staging/grading
+   - "Pancreatic tumor" = tissue type → Specimen.type
+   - "51.1, 6.9" months = survival time → Observation with time value
+   - "GSM12345" = accession ID → identifier field
+3. use YOUR DOMAIN KNOWLEDGE - you know FHIR, you know oncology, you know what these terms mean
 
-guidelines:
-- first, use search_fhir_fields or explore_fhir_resource to discover potential target fields
-- then use magneto_match/biobert_match/rule_match to score the candidates you found
-- prioritize magneto for field name matching (it's trained on this)
-- use biobert for semantic validation
-- check rules for established patterns
-- consider field type compatibility (id vs identifier, date vs datetime)
-- explain your reasoning clearly
-- provide confidence score 0.0-1.0
+then use tools to VALIDATE your hypothesis:
+- search_fhir_fields: find candidate FHIR fields
+- explore_fhir_resource: see all fields for a resource
+- biobert_match, magneto_match, rule_match: score candidates (pass source + candidate list)
 
-examples:
-- "case_id" -> Patient.id (structural identifier field)
-- "primary_diagnosis" -> Condition.code (semantic clinical concept)
-- "tissue_type" -> Specimen.type (domain-specific terminology)
+YOUR REASONING PROCESS:
+1. "This field is called X and has values like Y"
+2. "Based on my knowledge, this represents Z concept"
+3. "In FHIR, the Z concept maps to Resource.field"
+4. "Let me verify with tools..."
+5. "Final answer: Resource.field with confidence N"
+
+CRITICAL: you MUST provide a mapping. use your expertise to make the best choice.
+
+provide your answer in this format:
+CHOSEN TARGET: [Resource.field]
+CONFIDENCE: [0.0-1.0]
+REASONING: [your expert analysis of what the data means and why you chose this mapping]
 """
 
 CONTENT_MATCHING_PROMPT = """you are an expert in biomedical terminology and coding standards.
@@ -171,11 +177,10 @@ class ClaudeAgent(AutonomousAgent):
         context = context or {}
         kb = get_knowledge_base()
 
-        # fast path: ALWAYS check knowledge base first, skip LLM if exact match
+        # PRIORITY 1: exact lookup from knowledge base (O(1))
         rule_results = kb.db.lookup(source_field)
         if rule_results:
             _, dest = rule_results[0]
-            # if candidates provided, verify match is in list
             if candidate_targets:
                 dest_set = {d.destination.lower() for _, d in rule_results}
                 for target in candidate_targets:
@@ -185,32 +190,80 @@ class ClaudeAgent(AutonomousAgent):
                             target_field=target,
                             confidence=1.0,
                             reasoning="exact match from knowledge base (skipped llm)",
-                            supporting_evidence={"agent": self.name, "source": "knowledge_base"}
+                            supporting_evidence={"agent": self.name, "source": "knowledge_base_exact"}
                         )]
             else:
-                # no candidates - return KB match directly
                 return [MappingProposal(
                     source_field=source_field,
                     target_field=dest.destination,
                     confidence=1.0,
                     reasoning="exact match from knowledge base (skipped llm)",
-                    supporting_evidence={"agent": self.name, "source": "knowledge_base"}
+                    supporting_evidence={"agent": self.name, "source": "knowledge_base_exact"}
                 )]
 
-        # get similar mappings for few-shot context
+        # PRIORITY 2: fuzzy text search on field names in KB
+        # try original field name and common variations
+        search_terms = [source_field]
+        # add stemmed variations (e.g., "grading" -> "grade")
+        if source_field.endswith("ing"):
+            search_terms.append(source_field[:-3] + "e")  # grading -> grade
+            search_terms.append(source_field[:-3])  # grading -> grad
+        if source_field.endswith("s"):
+            search_terms.append(source_field[:-1])  # stages -> stage
+
+        fuzzy_results = []
+        for term in search_terms:
+            fuzzy_results.extend(kb.fuzzy_lookup(term, limit=5))
+
+        # if good fuzzy match found, use it (threshold 0.30 to catch token matches)
+        if fuzzy_results and fuzzy_results[0]["score"] >= 0.30:
+            best = fuzzy_results[0]
+            if candidate_targets:
+                # check if target is in candidates
+                for target in candidate_targets:
+                    if target.lower() == best["target"].lower():
+                        return [MappingProposal(
+                            source_field=source_field,
+                            target_field=target,
+                            confidence=0.9,
+                            reasoning=f"fuzzy match: '{source_field}' similar to '{best['source']}' ({best['schema']}) -> {best['target']}",
+                            supporting_evidence={"agent": self.name, "source": "knowledge_base_fuzzy", "match": best}
+                        )]
+            else:
+                return [MappingProposal(
+                    source_field=source_field,
+                    target_field=best["target"],
+                    confidence=0.9,
+                    reasoning=f"fuzzy match: '{source_field}' similar to '{best['source']}' ({best['schema']}) -> {best['target']}",
+                    supporting_evidence={"agent": self.name, "source": "knowledge_base_fuzzy", "match": best}
+                )]
+
+        # PRIORITY 3: vector similarity for few-shot context (passed to LLM)
         similar = kb.find_similar(source_field, k=3)
+        # also include fuzzy results in few-shot context
+        if fuzzy_results:
+            for fr in fuzzy_results[:3]:
+                similar.append({"source": fr["source"], "target": fr["target"], "score": fr["score"]})
         few_shot_context = ""
         if similar:
             few_shot_context = "\n\nsimilar mappings from knowledge base:\n"
             for s in similar:
                 few_shot_context += f"  {s['source']} -> {s['target']} (similarity: {s['score']:.2f})\n"
 
+        # build source context string if available
+        source_context_str = ""
+        if context.get("source_entity"):
+            source_context_str = f"\nsource entity/table: {context['source_entity']}"
+        if context.get("sample_values"):
+            vals = context["sample_values"][:5]  # limit to 5 samples
+            source_context_str += f"\nsample values: {vals}"
+
         # construct query for llm based on mode (constrained vs generative)
         if candidate_targets:
             # constrained mode: ranking from pre-provided candidates
             user_message = f"""map this source to the best target:
 
-source: {source_field}
+source: {source_field}{source_context_str}
 
 candidate targets:
 {chr(10).join(f"  - {t}" for t in candidate_targets)}
@@ -225,16 +278,18 @@ REASONING: [detailed explanation]
             # generative mode: discover and generate candidates
             user_message = f"""map this source field to the appropriate fhir field:
 
-source: {source_field}
+source: {source_field}{source_context_str}
 {few_shot_context}
 use the available tools to:
 1. search for potential target fields using search_fhir_fields or explore_fhir_resource
-2. score the discovered candidates using magneto_match, biobert_match, or rule_match
-3. choose the best match
+2. score the discovered candidates using ALL THREE matchers (magneto_match, biobert_match, rule_match)
+3. compare results from all matchers and choose the best match
+
+REMEMBER: you MUST provide a mapping. never say "unknown" - always make your best guess.
 
 provide your final recommendation in this exact format:
 
-CHOSEN TARGET: [full fhir path like resource.field]
+CHOSEN TARGET: [full fhir path like Resource.field]
 CONFIDENCE: [0.0-1.0]
 REASONING: [detailed explanation including what you discovered and why]
 """
@@ -264,6 +319,12 @@ REASONING: [detailed explanation including what you discovered and why]
         max_iterations = 10  # increased for generative mode workflow
         iteration = 0
 
+        # track tool results for fallback
+        tool_results = {
+            "candidates_discovered": [],
+            "matcher_scores": {}  # {target: {"biobert": score, "magneto": score, ...}}
+        }
+
         while hasattr(response, 'tool_calls') and response.tool_calls and iteration < max_iterations:
             iteration += 1
 
@@ -275,6 +336,30 @@ REASONING: [detailed explanation including what you discovered and why]
                     # execute the tool
                     tool_func = tool_map[tool_name]
                     tool_result = tool_func.invoke(tool_args)
+
+                    # track results for fallback
+                    if tool_name in ['search_fhir_fields', 'explore_fhir_resource']:
+                        # extract candidate paths from discovery tools
+                        if isinstance(tool_result, list):
+                            for item in tool_result[:10]:
+                                if isinstance(item, dict) and 'path' in item:
+                                    tool_results["candidates_discovered"].append(item['path'])
+                        elif isinstance(tool_result, dict) and 'fields' in tool_result:
+                            resource = tool_result.get('resource', '')
+                            for field in tool_result['fields'][:10]:
+                                tool_results["candidates_discovered"].append(f"{resource}.{field}")
+
+                    elif tool_name in ['biobert_match', 'magneto_match', 'rule_match']:
+                        # extract matcher scores
+                        matcher = tool_name.replace('_match', '')
+                        if isinstance(tool_result, list):
+                            for item in tool_result:
+                                if isinstance(item, dict):
+                                    target = item.get('target', '')
+                                    score = item.get('score', 0.0)
+                                    if target not in tool_results["matcher_scores"]:
+                                        tool_results["matcher_scores"][target] = {}
+                                    tool_results["matcher_scores"][target][matcher] = score
 
                     # add tool result to messages
                     messages.append(ToolMessage(
@@ -291,7 +376,8 @@ REASONING: [detailed explanation including what you discovered and why]
             response,
             source_field,
             candidate_targets,
-            context
+            context,
+            tool_results  # pass tool results for fallback
         )
 
         return proposals
@@ -301,7 +387,8 @@ REASONING: [detailed explanation including what you discovered and why]
         response: Any,
         source_field: str,
         candidate_targets: List[str],
-        context: dict
+        context: dict,
+        tool_results: dict = None
     ) -> List[MappingProposal]:
         """parse llm response into mapping proposals.
 
@@ -310,11 +397,14 @@ REASONING: [detailed explanation including what you discovered and why]
             source_field: source field
             candidate_targets: candidate targets
             context: context dict
+            tool_results: tracked results from tool calls for fallback
 
         returns:
             list of mapping proposals
         """
         import re
+
+        tool_results = tool_results or {"candidates_discovered": [], "matcher_scores": {}}
 
         # extract content from response
         if isinstance(response.content, str):
@@ -360,15 +450,35 @@ REASONING: [detailed explanation including what you discovered and why]
                     chosen_target = target
                     break
 
-        # final fallback
+        # final fallback: use tool results if LLM didn't give structured answer
         if not chosen_target:
             if candidate_targets:
                 chosen_target = candidate_targets[0]
             else:
-                # in generative mode, try to extract resource.field pattern from content
+                # try to extract resource.field pattern from content
                 pattern_match = re.search(r'\b([A-Z][a-z]+)\.([a-z_]+(?:\.[a-z_]+)*)\b', content)
                 if pattern_match:
                     chosen_target = pattern_match.group(0)
+
+                # FALLBACK: use highest-scoring match from tool results
+                elif tool_results["matcher_scores"]:
+                    # find target with highest average score across matchers
+                    best_target = None
+                    best_score = 0.0
+
+                    for target, scores in tool_results["matcher_scores"].items():
+                        if scores:
+                            avg_score = sum(scores.values()) / len(scores)
+                            if avg_score > best_score:
+                                best_score = avg_score
+                                best_target = target
+
+                    if best_target:
+                        chosen_target = best_target
+                        confidence = min(0.6, best_score)  # cap confidence for fallback
+                        reasoning = f"Fallback from tool results (LLM didn't provide structured answer). Best match: {best_target} with avg score {best_score:.3f}"
+                    else:
+                        chosen_target = "unknown"
                 else:
                     chosen_target = "unknown"
 
@@ -380,7 +490,8 @@ REASONING: [detailed explanation including what you discovered and why]
             reasoning=reasoning,
             supporting_evidence={
                 "agent": self.name,
-                "llm_response": content
+                "llm_response": content,
+                "tool_results": tool_results
             }
         )]
 

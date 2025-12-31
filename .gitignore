@@ -88,3 +88,5 @@ demo/
 # test files and legacy examples
 examples/test_*.py
 examples/legacy/
+data
+calibrators/summaries/*.csv

@@ -42,6 +42,7 @@ class RuleMatcher(BaseMatcher):
         targets: List[str],
         context: Optional[str] = None,
         tier: Optional[Tier] = None,
+        schema: Optional[str] = None,
     ) -> List[Tuple[str, float]]:
         """match source to targets using flat database O(1) lookup.
 
@@ -57,12 +58,13 @@ class RuleMatcher(BaseMatcher):
             targets: candidate target fields
             context: optional context for disambiguation
             tier: optional tier filter (entity, field, content)
+            schema: optional schema filter (e.g., "gdc", "htan")
 
         returns:
             sorted list of (target, score) tuples
         """
         # O(1) lookup in flat database (sources table)
-        mappings = self.db.lookup(source, context)
+        mappings = self.db.lookup(source, context, schema=schema)
 
         # filter by tier if specified
         if tier and mappings:

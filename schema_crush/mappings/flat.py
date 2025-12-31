@@ -227,12 +227,18 @@ class FlatMappingDatabase:
             self._dest_by_source[dest.source_id] = []
         self._dest_by_source[dest.source_id].append(dest)
 
-    def lookup(self, source_term: str, context: Optional[str] = None) -> list[tuple[Source, Destination]]:
+    def lookup(
+        self,
+        source_term: str,
+        context: Optional[str] = None,
+        schema: Optional[str] = None,
+    ) -> list[tuple[Source, Destination]]:
         """O(1) lookup: get all mappings for a source term.
 
         args:
             source_term: source field name (e.g., "sample_id")
             context: optional context for disambiguation (e.g., "sample")
+            schema: optional schema filter (e.g., "gdc", "htan")
 
         returns:
             list of (Source, Destination) tuples
@@ -243,6 +249,9 @@ class FlatMappingDatabase:
             if not source_id:
                 return []
             source = self.sources[source_id]
+            # filter by schema if specified
+            if schema and source.source_schema != schema:
+                return []
             dests = self._dest_by_source.get(source_id, [])
             return [(source, d) for d in dests]
         else:
@@ -251,6 +260,9 @@ class FlatMappingDatabase:
             results = []
             for source_id in source_ids:
                 source = self.sources[source_id]
+                # filter by schema if specified
+                if schema and source.source_schema != schema:
+                    continue
                 dests = self._dest_by_source.get(source_id, [])
                 results.extend((source, d) for d in dests)
             return results
