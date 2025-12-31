@@ -219,6 +219,169 @@ def search_fhir_fields(search_term: str, resource_filter: Optional[str] = None) 
     return limited_results
 
 
+@tool
+def search_loinc(query: str, limit: int = 10) -> List[Dict[str, str]]:
+    """search LOINC codes by text query.
+
+    best for: finding lab test codes, observation codes, clinical measurements.
+
+    examples: "glucose", "hemoglobin A1c", "blood pressure", "cholesterol"
+
+    args:
+        query: search term for lab/observation concept
+        limit: max results (default 10)
+
+    returns:
+        list of {code, display, system} dicts
+    """
+    import requests
+
+    print(f"[loinc] searching for '{query}'...")
+
+    url = "https://clinicaltables.nlm.nih.gov/api/loinc_items/v3/search"
+    params = {
+        "terms": query,
+        "type": "question",
+        "df": "text,LOINC_NUM",
+        "count": limit
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        # format: [total, [codes], null, [[text, LOINC_NUM], ...]]
+        total = data[0]
+        codes = data[1] if len(data) > 1 else []
+        displays = data[3] if len(data) > 3 else []
+
+        results = []
+        for i, code in enumerate(codes):
+            # displays[i] = [text, LOINC_NUM]
+            display = displays[i][0] if i < len(displays) and len(displays[i]) > 0 else ""
+            loinc_num = displays[i][1] if i < len(displays) and len(displays[i]) > 1 else code
+            results.append({
+                "code": loinc_num,
+                "display": display,
+                "system": "http://loinc.org"
+            })
+
+        print(f"[loinc] found {total} total, returning {len(results)}")
+        return results
+
+    except Exception as e:
+        print(f"[loinc] error: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+def search_snomed(query: str, limit: int = 10) -> List[Dict[str, str]]:
+    """search SNOMED CT codes by text query.
+
+    best for: finding diagnosis codes, clinical findings, procedures, body structures.
+
+    examples: "adenocarcinoma", "diabetes", "appendectomy", "pancreas"
+
+    args:
+        query: search term for clinical concept
+        limit: max results (default 10)
+
+    returns:
+        list of {code, display, system} dicts
+    """
+    import requests
+
+    print(f"[snomed] searching for '{query}'...")
+
+    # use tx.fhir.org (more reliable than snowstorm public server)
+    url = "https://tx.fhir.org/r4/ValueSet/$expand"
+    params = {
+        "url": "http://snomed.info/sct?fhir_vs",
+        "filter": query,
+        "count": limit
+    }
+    headers = {
+        "Accept": "application/json"
+    }
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        results = []
+        for item in data.get("expansion", {}).get("contains", []):
+            results.append({
+                "code": item.get("code", ""),
+                "display": item.get("display", ""),
+                "system": item.get("system", "http://snomed.info/sct")
+            })
+
+        print(f"[snomed] found {len(results)} results")
+        return results
+
+    except Exception as e:
+        print(f"[snomed] error: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+def search_ontology(query: str, ontology: str = None, limit: int = 10) -> List[Dict[str, str]]:
+    """search biomedical ontologies via EBI OLS4.
+
+    best for: finding terms from HPO, MONDO, NCIt, UBERON, GO, and other ontologies.
+
+    examples: "diabetes" in MONDO, "pancreas" in UBERON, "tumor grade" in NCIt
+
+    args:
+        query: search term
+        ontology: optional ontology filter (e.g., "mondo", "ncit", "hpo", "uberon")
+        limit: max results (default 10)
+
+    returns:
+        list of {code, display, system, ontology} dicts
+    """
+    import requests
+
+    print(f"[ols4] searching for '{query}'" + (f" in {ontology}" if ontology else ""))
+
+    url = "https://www.ebi.ac.uk/ols4/api/search"
+    params = {
+        "q": query,
+        "rows": limit,
+        "format": "json"
+    }
+    if ontology:
+        params["ontology"] = ontology.lower()
+
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        results = []
+        for doc in data.get("response", {}).get("docs", []):
+            obo_id = doc.get("obo_id", doc.get("short_form", ""))
+            label = doc.get("label", "")
+            ont = doc.get("ontology_name", "")
+            iri = doc.get("iri", "")
+
+            results.append({
+                "code": obo_id,
+                "display": label,
+                "system": iri,
+                "ontology": ont
+            })
+
+        print(f"[ols4] found {len(results)} results")
+        return results
+
+    except Exception as e:
+        print(f"[ols4] error: {e}")
+        return [{"error": str(e)}]
+
+
 def warmup_matchers():
     """pre-load all matchers to avoid first-call latency.
 
@@ -233,4 +396,8 @@ def warmup_matchers():
 
 
 # export tools for agent
-MAPPING_TOOLS = [biobert_match, magneto_match, rule_match, explore_fhir_resource, search_fhir_fields]
+MAPPING_TOOLS = [
+    biobert_match, magneto_match, rule_match,
+    explore_fhir_resource, search_fhir_fields,
+    search_loinc, search_snomed, search_ontology
+]

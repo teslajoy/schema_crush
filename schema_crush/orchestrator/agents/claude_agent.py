@@ -46,6 +46,9 @@ then use tools to VALIDATE your hypothesis:
 - search_fhir_fields: find candidate FHIR fields
 - explore_fhir_resource: see all fields for a resource
 - biobert_match, magneto_match, rule_match: score candidates (pass source + candidate list)
+- search_loinc: find LOINC codes for lab tests/observations
+- search_snomed: find SNOMED codes for diagnoses/findings
+- search_ontology: search NCIt, MONDO, HPO, UBERON ontologies
 
 YOUR REASONING PROCESS:
 1. "This field is called X and has values like Y"
@@ -64,27 +67,33 @@ REASONING: [your expert analysis of what the data means and why you chose this m
 
 CONTENT_MATCHING_PROMPT = """you are an expert in biomedical terminology and coding standards.
 
-task: map source data values to fhir coded values or standard terminologies.
+task: map source data values to FHIR coded values using standard terminologies.
 
-you have access to three matching tools:
-1. biobert_match - biomedical semantic similarity
-2. magneto_match - schema structure patterns
-3. rule_match - knowledge base rules with coding systems
+TERMINOLOGY SEARCH TOOLS (use these first!):
+- search_loinc: find LOINC codes for lab tests, observations, measurements
+  example: search_loinc("glucose") -> 2345-7: Glucose [Mass/volume] in Serum
+- search_snomed: find SNOMED CT codes for diagnoses, findings, procedures
+  example: search_snomed("adenocarcinoma") -> 35917007: Adenocarcinoma
+- search_ontology: search NCIt, MONDO, HPO, UBERON, GO ontologies
+  example: search_ontology("tumor grade", ontology="ncit") → NCIT:C28076
 
-guidelines:
-- identify the appropriate coding system (snomed, loinc, icd-10, etc)
-- use biobert for semantic matching of medical terms
-- check rules for established value mappings
-- map to observation codes when appropriate
-- explain your reasoning clearly
-- provide confidence score 0.0-1.0
+MATCHING TOOLS (for scoring/validation):
+- biobert_match: biomedical semantic similarity
+- magneto_match: schema structure patterns
+- rule_match: knowledge base rules
 
-examples:
-- "Adenocarcinoma" -> SNOMED CT code (cancer diagnosis)
-- "Fresh Frozen" -> specimen type code (tissue preservation)
-- "Male" -> administrative-gender code (fhir value set)
+WORKFLOW:
+1. identify what type of concept (diagnosis, lab test, procedure, anatomy, etc.)
+2. use the appropriate terminology tool to find codes
+3. validate with matching tools if needed
+4. return the best code with system URI
 
-note: this task is not fully implemented yet. focus on identifying the coding system and general approach.
+provide your answer in this format:
+CHOSEN CODE: [code]
+SYSTEM: [http://snomed.info/sct or http://loinc.org etc.]
+DISPLAY: [human readable name]
+CONFIDENCE: [0.0-1.0]
+REASONING: [why this code is appropriate]
 """
 
 
@@ -308,12 +317,16 @@ REASONING: [detailed explanation including what you discovered and why]
         messages.append(response)
 
         # execute tool calls in a loop (allow multiple rounds of tool calling)
+        from schema_crush.orchestrator.agents.tools import search_loinc, search_snomed, search_ontology
         tool_map = {
             'biobert_match': biobert_match,
             'magneto_match': magneto_match,
             'rule_match': rule_match,
             'explore_fhir_resource': explore_fhir_resource,
-            'search_fhir_fields': search_fhir_fields
+            'search_fhir_fields': search_fhir_fields,
+            'search_loinc': search_loinc,
+            'search_snomed': search_snomed,
+            'search_ontology': search_ontology
         }
 
         max_iterations = 10  # increased for generative mode workflow
