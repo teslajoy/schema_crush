@@ -9,12 +9,26 @@ solution:
 - use flat mapping database as calibration ground truth
 - measure actual accuracy at each confidence level
 - build calibration curves to adjust raw scores
-- support tier-aware calibration (entity vs field vs content)
+- support context-aware calibration with backoff (schema, context, tier)
+
+backoff key scheme (most specific → most general):
+  {matcher}:{tier}:{schema}:{context}
+  {matcher}:{tier}:{schema}:*
+  {matcher}:{tier}:*:{context}
+  {matcher}:{tier}:*:*
+  {matcher}:*:*:*
+
+this prevents per-context overfitting by falling back when data is sparse.
 """
 
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 from dataclasses import dataclass
+
+
+# thresholds for calibrator eligibility (avoid overfitting sparse contexts)
+MIN_POS = 100      # minimum positive examples needed
+MIN_TOTAL = 300    # minimum total examples needed
 
 
 @dataclass
@@ -29,22 +43,27 @@ class CalibrationBin:
 class ConfidenceCalibrator:
     """calibrate matcher confidence scores based on historical accuracy.
 
-    supports tier-aware calibration where each tier (entity, field, content)
-    has separate calibration curves.
+    supports context-aware calibration with backoff chain to avoid overfitting.
+    key hierarchy: matcher:tier:schema:context → matcher:tier:schema:* → ... → matcher:*:*:*
     """
 
-    def __init__(self, num_bins: int = 10):
+    def __init__(self, num_bins: int = 10, min_pos: int = MIN_POS, min_total: int = MIN_TOTAL):
         """initialize calibrator.
 
         args:
             num_bins: number of confidence bins (default 10 for 0.0-0.1, 0.1-0.2, ...)
+            min_pos: minimum positive examples for a key to be eligible
+            min_total: minimum total examples for a key to be eligible
         """
         self.num_bins = num_bins
+        self.min_pos = min_pos
+        self.min_total = min_total
         self.calibration_data = {}  # regular dict for pickling
         self.calibration_curves = {}
+        self.key_stats = {}  # {key: {"n_total": int, "n_pos": int}}
 
     def _make_key(self, matcher_name: str, tier: Optional[str] = None) -> str:
-        """build consistent key for calibration data/curves.
+        """build simple key for backwards compatibility.
 
         args:
             matcher_name: name of matcher ("biobert", "magneto", "rule")
@@ -55,6 +74,68 @@ class ConfidenceCalibrator:
         """
         return f"{matcher_name}:{tier}" if tier else matcher_name
 
+    def _make_context_key(
+        self,
+        matcher_name: str,
+        tier: str = "*",
+        schema: str = "*",
+        context: str = "*"
+    ) -> str:
+        """build full context key with wildcards.
+
+        args:
+            matcher_name: name of matcher
+            tier: tier or "*" for wildcard
+            schema: source schema or "*" for wildcard
+            context: source context or "*" for wildcard
+
+        returns:
+            key string: "matcher:tier:schema:context"
+        """
+        return f"{matcher_name}:{tier}:{schema}:{context}"
+
+    def _key_chain(
+        self,
+        matcher_name: str,
+        tier: Optional[str] = None,
+        schema: Optional[str] = None,
+        context: Optional[str] = None
+    ) -> List[str]:
+        """build backoff key chain from most specific to most general.
+
+        args:
+            matcher_name: name of matcher
+            tier: tier (entity, field, content) or None
+            schema: source schema (gdc, htan, etc.) or None
+            context: source context (demographic, sample, etc.) or None
+
+        returns:
+            list of keys from most specific to most general
+        """
+        t = tier or "*"
+        s = schema or "*"
+        c = context or "*"
+
+        return [
+            f"{matcher_name}:{t}:{s}:{c}",      # most specific
+            f"{matcher_name}:{t}:{s}:*",        # schema-specific, any context
+            f"{matcher_name}:{t}:*:{c}",        # context-specific, any schema
+            f"{matcher_name}:{t}:*:*",          # tier-specific only
+            f"{matcher_name}:*:*:*",            # matcher global (most general)
+        ]
+
+    def _is_eligible(self, key: str) -> bool:
+        """check if a calibrator key has enough data to be used.
+
+        args:
+            key: calibration key
+
+        returns:
+            True if key has sufficient data (n_pos >= min_pos and n_total >= min_total)
+        """
+        stats = self.key_stats.get(key, {"n_total": 0, "n_pos": 0})
+        return stats["n_pos"] >= self.min_pos and stats["n_total"] >= self.min_total
+
     def add_prediction(
         self,
         matcher_name: str,
@@ -62,30 +143,61 @@ class ConfidenceCalibrator:
         was_correct: bool,
         metadata: Dict[str, Any] = None,
         tier: Optional[str] = None,
+        schema: Optional[str] = None,
+        context: Optional[str] = None,
     ):
         """record a prediction outcome for calibration.
+
+        uses multi-accumulator approach: adds to all parent buckets in the
+        backoff chain to ensure coverage for sparse contexts.
 
         args:
             matcher_name: name of matcher ("biobert", "magneto", "rule")
             confidence: raw confidence score from matcher (0.0-1.0)
             was_correct: whether the prediction was correct
             metadata: optional metadata (source, target, ...)
-            tier: optional tier for tier-aware calibration (entity, field, content)
+            tier: optional tier (entity, field, content)
+            schema: optional source schema (gdc, htan, etc.)
+            context: optional source context (demographic, sample, etc.)
         """
-        key = self._make_key(matcher_name, tier)
+        outcome = 1.0 if was_correct else 0.0
 
-        # initialize if needed (no defaultdict for pickling)
-        if key not in self.calibration_data:
-            self.calibration_data[key] = {
-                "confidences": [],
-                "outcomes": [],
-                "metadata": [],
-            }
+        # build all keys in the backoff chain (most specific → most general)
+        keys_to_add = self._key_chain(matcher_name, tier, schema, context)
 
-        self.calibration_data[key]["confidences"].append(confidence)
-        self.calibration_data[key]["outcomes"].append(1.0 if was_correct else 0.0)
-        if metadata:
-            self.calibration_data[key]["metadata"].append(metadata)
+        # also add legacy keys for backwards compatibility
+        legacy_keys = [self._make_key(matcher_name, tier), matcher_name]
+        keys_to_add.extend(legacy_keys)
+
+        # deduplicate while preserving order
+        seen = set()
+        unique_keys = []
+        for k in keys_to_add:
+            if k not in seen:
+                seen.add(k)
+                unique_keys.append(k)
+
+        # add to all buckets (multi-accumulator)
+        for key in unique_keys:
+            # initialize if needed (no defaultdict for pickling)
+            if key not in self.calibration_data:
+                self.calibration_data[key] = {
+                    "confidences": [],
+                    "outcomes": [],
+                    "metadata": [],
+                }
+
+            self.calibration_data[key]["confidences"].append(confidence)
+            self.calibration_data[key]["outcomes"].append(outcome)
+            if metadata:
+                self.calibration_data[key]["metadata"].append(metadata)
+
+            # update stats for eligibility checks
+            if key not in self.key_stats:
+                self.key_stats[key] = {"n_total": 0, "n_pos": 0}
+            self.key_stats[key]["n_total"] += 1
+            if was_correct:
+                self.key_stats[key]["n_pos"] += 1
 
     def calibrate(self, key: str) -> Dict[str, CalibrationBin]:
         """build calibration curve for a key (matcher or matcher:tier).
@@ -149,39 +261,87 @@ class ConfidenceCalibrator:
         matcher_name: str,
         raw_score: float,
         tier: Optional[str] = None,
+        schema: Optional[str] = None,
+        context: Optional[str] = None,
     ) -> float:
-        """calibrate a raw confidence score using learned curve.
+        """calibrate a raw confidence score using learned curve with backoff.
+
+        uses backoff chain to find most specific eligible calibrator:
+            1. matcher:tier:schema:context (if eligible)
+            2. matcher:tier:schema:* (if eligible)
+            3. matcher:tier:*:context (if eligible)
+            4. matcher:tier:*:* (if eligible)
+            5. matcher:*:*:* (always fallback)
 
         mathematical formulation:
             given raw_score s, find bin i where s in [b_i, b_{i+1})
             calibrated_score = actual_accuracy_i
 
-            this maps the raw confidence to the empirically observed accuracy
-            for predictions at that confidence level.
-
         args:
             matcher_name: name of matcher
             raw_score: raw confidence score (0.0-1.0)
-            tier: optional tier for tier-aware calibration
+            tier: optional tier (entity, field, content)
+            schema: optional source schema (gdc, htan, etc.)
+            context: optional source context (demographic, sample, etc.)
 
         returns:
             calibrated confidence score reflecting actual accuracy
         """
-        # try tier-specific curve first, fallback to pooled
-        key = self._make_key(matcher_name, tier)
-        if key not in self.calibration_curves:
-            key = matcher_name
-        if key not in self.calibration_curves:
+        # build backoff chain and find first eligible calibrator
+        chain = self._key_chain(matcher_name, tier, schema, context)
+
+        # also try legacy keys
+        chain.extend([self._make_key(matcher_name, tier), matcher_name])
+
+        selected_key = None
+        for key in chain:
+            if key in self.calibration_curves and self._is_eligible(key):
+                selected_key = key
+                break
+
+        # if no eligible key found, use the most general one that exists
+        if selected_key is None:
+            for key in reversed(chain):
+                if key in self.calibration_curves:
+                    selected_key = key
+                    break
+
+        if selected_key is None:
             return raw_score
 
         # find which bin this score falls into
         bin_idx = min(int(raw_score * self.num_bins), self.num_bins - 1)
-        bin_data = self.calibration_curves[key].get(bin_idx)
+        bin_data = self.calibration_curves[selected_key].get(bin_idx)
 
         if bin_data and bin_data.sample_count > 0:
             return bin_data.actual_accuracy
         else:
             return raw_score
+
+    def get_key_stats_report(self) -> str:
+        """get a report of all calibration keys and their eligibility.
+
+        returns:
+            formatted string with key stats
+        """
+        lines = ["Calibration Key Stats:", "=" * 60]
+        lines.append(f"{'Key':<45} {'Total':>8} {'Pos':>6} {'Eligible':>8}")
+        lines.append("-" * 60)
+
+        # sort by total count descending
+        sorted_keys = sorted(
+            self.key_stats.items(),
+            key=lambda x: x[1]["n_total"],
+            reverse=True
+        )
+
+        for key, stats in sorted_keys:
+            eligible = "YES" if self._is_eligible(key) else "no"
+            lines.append(
+                f"{key:<45} {stats['n_total']:>8} {stats['n_pos']:>6} {eligible:>8}"
+            )
+
+        return "\n".join(lines)
 
     def calibrate_all(self) -> None:
         """build calibration curves for all keys (matchers and tier-specific)."""
@@ -366,33 +526,22 @@ def create_calibrator_from_flat_db(
                 top_target, top_score = results[0]
                 was_correct = top_target.lower() in ground_truths
 
-                # add to pooled calibration (all tiers) for fallback
+                # single call - multi-accumulator adds to all parent buckets
                 calibrator.add_prediction(
                     matcher_name=matcher_name,
                     confidence=top_score,
                     was_correct=was_correct,
+                    tier=src.tier.value if tier_aware else None,
+                    schema=src.source_schema,
+                    context=src.source_context,
                     metadata={
                         "source": src.source,
+                        "schema": src.source_schema,
                         "context": src.source_context,
                         "predicted": top_target,
                         "ground_truths": list(ground_truths),
                     },
                 )
-
-                # add to tier-specific calibration
-                if tier_aware:
-                    calibrator.add_prediction(
-                        matcher_name=matcher_name,
-                        confidence=top_score,
-                        was_correct=was_correct,
-                        tier=src.tier.value,
-                        metadata={
-                            "source": src.source,
-                            "context": src.source_context,
-                            "predicted": top_target,
-                            "ground_truths": list(ground_truths),
-                        },
-                    )
 
                 if (i + 1) % 100 == 0:
                     print(f"  processed {i + 1}/{len(sources)} sources...")
@@ -467,41 +616,15 @@ def _calibrate_content_values(
                 top_path, top_score = results[0]
                 was_correct = top_path.lower() in ground_truth_paths
 
-                # add to pooled calibration
-                calibrator.add_prediction(
-                    matcher_name=matcher_name,
-                    confidence=top_score,
-                    was_correct=was_correct,
-                    metadata={
-                        "source_value": cv.source_value,
-                        "category": cv.source_category,
-                        "code": cv.code,
-                        "predicted": top_path,
-                        "ground_truths": list(ground_truth_paths),
-                    },
-                )
-
-                # add to content tier calibration
+                # single call - multi-accumulator adds to all parent buckets
+                # use source_category as context for content tier
                 calibrator.add_prediction(
                     matcher_name=matcher_name,
                     confidence=top_score,
                     was_correct=was_correct,
                     tier="content",
-                    metadata={
-                        "source_value": cv.source_value,
-                        "category": cv.source_category,
-                        "code": cv.code,
-                        "predicted": top_path,
-                        "ground_truths": list(ground_truth_paths),
-                    },
-                )
-
-                # add category-specific calibration (e.g., "content:histology")
-                calibrator.add_prediction(
-                    matcher_name=matcher_name,
-                    confidence=top_score,
-                    was_correct=was_correct,
-                    tier=f"content:{cv.source_category}",
+                    schema=cv.source_schema if hasattr(cv, 'source_schema') else "terminology",
+                    context=cv.source_category,
                     metadata={
                         "source_value": cv.source_value,
                         "category": cv.source_category,

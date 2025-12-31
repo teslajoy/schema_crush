@@ -102,9 +102,13 @@ def calibrate_matcher_on_tier(
             "correct": correct,
         })
 
-        # add to calibrator - both global and tier-specific
-        calibrator.add_prediction(matcher_name, score, correct)
-        calibrator.add_prediction(matcher_name, score, correct, tier=tier.value)
+        # add to calibrator - single call, multi-accumulator adds to all parent buckets
+        calibrator.add_prediction(
+            matcher_name, score, correct,
+            tier=tier.value,
+            schema=src.source_schema,
+            context=src.source_context,
+        )
 
         if (i + 1) % 100 == 0:
             print(f"    processed {i + 1}/{len(sources)}...")
@@ -195,9 +199,13 @@ def calibrate_matcher_on_content(
             "code": source_to_code[source_lower],
         })
 
-        # add to calibrator - global and content tier
-        calibrator.add_prediction(matcher_name, score, correct)
-        calibrator.add_prediction(matcher_name, score, correct, tier="content")
+        # add to calibrator - single call, multi-accumulator adds to all parent buckets
+        calibrator.add_prediction(
+            matcher_name, score, correct,
+            tier="content",
+            schema="terminology",  # content values come from terminology mappings
+            context=source_to_category[source_lower],
+        )
 
         if (i + 1) % 200 == 0:
             print(f"    processed {i + 1}/{len(unique_sources)}...")

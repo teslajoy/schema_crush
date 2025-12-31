@@ -84,7 +84,7 @@ python examples/evaluate_gdc_embedders.py
 | biobert matcher | done | overconfident (needs calibration) |
 | magneto matcher | done | best for field matching |
 | claudeagent | done | llm with tool-calling + fast path |
-| calibration system | done | tier-aware confidence calibration |
+| calibration system | done | context-aware backoff calibration |
 | knowledgebase | done | unified loader for all knowledge |
 | vector store | done | chromadb for similarity search |
 | pearl orchestrator | partial | state machine defined, needs updates |
@@ -101,23 +101,61 @@ python examples/evaluate_gdc_embedders.py
 | magneto | 25% | 65% | 13.3% | good for field names |
 | biobert | 5% | 15% | 8.2% | overconfident, needs calibration |
 
-## calibration results (dec 2025)
+## calibration system
 
-tier-aware calibration on flat mapping database (2753 sources, 2970 destinations):
+calibration maps raw matcher confidence to actual accuracy. uses backoff-key scheme to handle sparse contexts.
+
+### how it works
+
+1. **binning**: divide confidence [0,1] into 10 bins, track accuracy per bin
+2. **backoff keys**: `matcher:tier:schema:context` → fallback to more general keys when data is sparse
+3. **eligibility**: a key needs 300+ samples and 100+ positives to be used (prevents overfitting)
+
+key structure:
+```
+matcher : tier   : schema : context
+   │        │        │        │
+magneto : field  :  gdc   : specimen
+```
+
+backoff chain (most specific → global fallback):
+```
+magneto:field:gdc:specimen  ->  magneto:field:gdc:*  ->  magneto:field:*:*  ->  magneto:*:*:*
+```
+
+### calibration plots
+
+generated in `examples/` and `calibrators/calibration_logs/`:
+
+| plot | shows |
+|------|-------|
+| `calibration_reliability.png` | predicted vs actual accuracy per matcher (diagonal = perfect) |
+| `calibration_*_contexts.png` | global vs tier-specific curves + key data distribution |
+| `calibration_key_stats.png` | sample counts per key, which keys are eligible |
+| `*_flat_calibration.png` | per-tier breakdown (entity, field, content) |
+
+### current results (dec 2025)
 
 | matcher | tier | accuracy | ece | notes |
 |---------|------|----------|-----|-------|
-| **rule** | entity | 51.9% | 0.481 | one-to-many: same source maps to multiple valid fhir resources |
-| **rule** | field | **92.0%** | 0.080 | well-calibrated |
-| **rule** | content | **99.4%** | 0.006 | excellent |
-| biobert | entity | 1.3% | 0.854 | overconfident |
-| biobert | field | 14.3% | 0.739 | needs calibration |
-| biobert | content | 4.8% | 0.770 | needs calibration |
-| magneto | entity | 3.8% | 0.288 | low but honest confidence |
-| magneto | field | 30.0% | 0.234 | good calibration at high confidence |
-| magneto | content | 14.6% | 0.082 | moderately calibrated |
+| **rule** | entity | 52.1% | 0.48 | one-to-many mappings (source → multiple valid targets) |
+| **rule** | field | **94.7%** | 0.05 | excellent |
+| **rule** | content | **99.6%** | 0.004 | near-perfect (terminology lookups) |
+| biobert | entity | 1.3% | 0.85 | overconfident, use calibrated score |
+| biobert | field | 14.7% | 0.74 | overconfident |
+| biobert | content | 69.8% | 0.24 | better on terminology |
+| magneto | entity | 3.8% | 0.29 | low confidence but honest |
+| magneto | field | 26.7% | 0.25 | moderate |
+| magneto | content | 70.0% | 0.05 | well-calibrated on terminology |
 
-**note on entity tier**: the 51.9% accuracy reflects one-to-many mappings where a source term (e.g., `Assay`) correctly maps to multiple fhir resources (e.g., both `ServiceRequest` AND `DocumentReference.category.coding`). if ANY valid destination is returned, the mapping is correct.
+**why "global" accuracy differs from "content"**: global = weighted average of entity + field + content. entity matching is harder (52% for rule, 1-4% for embedders), which pulls down the global average. content matching (terminology lookups) is easier since it's often exact matches.
+
+### retrain calibrators
+
+```bash
+python calibrators/calibrate_flat_mappings.py --embeddings
+python examples/plot_calibration.py
+```
 
 ## data flow
 
