@@ -92,3 +92,8 @@ examples/*.png
 data
 calibrators/summaries/*.csv
 .claude/
+docs/.png
+docs/.md
+docs
+calibrators/summaries/*.csv
+img/architecture.png

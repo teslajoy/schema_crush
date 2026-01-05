@@ -1,17 +1,30 @@
 """chromadb vector store for semantic mapping retrieval."""
 
+from pathlib import Path
+
 import chromadb
 from sentence_transformers import SentenceTransformer
+
+# default path relative to this file: schema_crush/data/db/chroma/
+DEFAULT_CHROMA_PATH = Path(__file__).parent.parent / "data" / "db" / "chroma"
 
 
 class MappingVectorStore:
     """vector store for finding similar mappings."""
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self.client = chromadb.Client()
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        persist_directory: Path | str | None = None,
+    ):
+        persist_path = Path(persist_directory) if persist_directory else DEFAULT_CHROMA_PATH
+        persist_path.mkdir(parents=True, exist_ok=True)
+
+        self.client = chromadb.PersistentClient(path=str(persist_path))
         self.collection = self.client.get_or_create_collection("mappings")
         self.model = SentenceTransformer(model_name)
-        self._indexed = False
+        # check if already indexed from persistence
+        self._indexed = self.collection.count() > 0
 
     def index(self, db):
         """index all sources from flatmappingdatabase."""
@@ -67,3 +80,24 @@ class MappingVectorStore:
                     "score": 1 - results["distances"][0][i]
                 })
         return out
+
+    def clear(self):
+        """clear the collection and reset indexed state."""
+        self.client.delete_collection("mappings")
+        self.collection = self.client.get_or_create_collection("mappings")
+        self._indexed = False
+
+    def reindex(self, db):
+        """force reindex by clearing and rebuilding."""
+        self.clear()
+        self.index(db)
+
+    def add_mapping(self, source: str, target: str, id_prefix: str = "user"):
+        """add a single mapping (for feedback loop)."""
+        doc_id = f"{id_prefix}_{source}_{target}".replace(" ", "_")[:63]
+        embedding = self.model.encode([source]).tolist()
+        self.collection.upsert(
+            ids=[doc_id],
+            embeddings=embedding,
+            metadatas=[{"source": source, "target": target}]
+        )

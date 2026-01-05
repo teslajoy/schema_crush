@@ -111,13 +111,15 @@ python examples/demo_claude_agent.py
 | adaptive weights | missing | auto-adjust tool weights |
 | cli integration | missing | `schema_crush match source.csv` |
 
-## matcher performance (gdc evaluation)
+## matcher performance (legacy - pre-calibration)
 
 | matcher | precision@1 | recall@5 | accuracy | notes |
 |---------|-------------|----------|----------|-------|
 | rulematcher | 97% | 97% | 96.9% | best - uses knowledge base |
 | magneto | 25% | 65% | 13.3% | good for field names |
 | biobert | 5% | 15% | 8.2% | overconfident, needs calibration |
+
+> see calibration system section below for current tier-aware results
 
 ## calibration system
 
@@ -214,7 +216,7 @@ source schema (csv/json)
 | calibrated scores | confidence reflects true accuracy |
 | few-shot context | similar mappings passed to llm |
 
-## pearl agent workflow
+## pearl agent workflow (legacy - not active)
 
 ```
 perceive -> reason -> act -> hitl -> learn -> (next tier or end)
@@ -226,11 +228,13 @@ perceive -> reason -> act -> hitl -> learn -> (next tier or end)
 - hitl: queue medium confidence (85-95%) matches for human review
 - learn: collect metrics and update from feedback
 
-## confidence levels
+## confidence levels (legacy)
 
 - high: score >= 95% (auto-accept)
 - medium: score 85-95% (requires hitl)
 - low: score < 85% (filtered out)
+
+> current system uses calibrated confidence from backoff-key calibration
 
 ## file structure
 
@@ -276,28 +280,16 @@ data flow: `curated_loader` + `fhir_aggregator_loader` → `normalizer` -> `flat
 | ontology mining | not started | auto-discover from snomed/loinc |
 | federation | not started | external fhir server validation |
 
-## output files
+## output files (legacy)
 
-all results saved to `results/` directory:
+> current cli outputs json to stdout or file via `-o`
 
 - `*_mappings.json`: final source to target mappings
 - `*_scores.json`: detailed scores with embedder contributions
 - `*_reasoning.txt`: agent decision log
-- `*_metadata.json`: run configuration and metrics
-- `*_hitl_queue.json`: matches requiring human review
-- `*_summary.txt`: human-readable summary
 
 ## testing
 
 ```bash
 pytest tests/
 ```
-
-## components
-
-- `loaders/`: data loaders (csv, json)
-- `tools/embeddings/`: biobert and magneto embedders
-- `tools/matchers/`: matcher implementations
-- `orchestrator/`: pearl agent workflow
-- `learning/`: knowledge base and vector store
-- `data/`: example data and ground truth mappings
