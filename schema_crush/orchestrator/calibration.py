@@ -738,10 +738,10 @@ def load_calibrators(
     from pathlib import Path
 
     if calibrators_dir is None:
-        # default to package calibrators/ directory
+        # default to package data/calibrators/ directory
         import schema_crush
-        package_dir = Path(schema_crush.__file__).parent.parent
-        calibrators_dir = package_dir / "calibrators"
+        package_dir = Path(schema_crush.__file__).parent
+        calibrators_dir = package_dir / "data" / "calibrators"
     else:
         calibrators_dir = Path(calibrators_dir)
 

@@ -27,3 +27,5 @@ ipython
 
 # testing
 pytest
+
+mcp

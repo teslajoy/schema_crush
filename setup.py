@@ -20,7 +20,7 @@ with open(readme_file, encoding="utf-8") as f:
 setup(
     name="schema_crush",
     version="0.2.0",
-    description="semantic schema matching using multi-agent embedders with human-in-the-loop validation",
+    description="map biomedical schemas to FHIR using agentic AI with calibrated matchers as tools with MCP server support",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Nasim Sanati",
@@ -30,12 +30,17 @@ setup(
     include_package_data=True,
     package_data={
         "schema_crush": [
-            "data/resources/gdc_mapping/*.json",
-            "data/resources/htan_mapping/*.json",
             "data/resources/*.yaml",
+            "data/db/*.db",
+            "data/calibrators/pkl/*.pkl",
         ],
     },
     install_requires=requirements,
+    entry_points={
+        "console_scripts": [
+            "schema-crush-mcp=schema_crush.mcp.server:main",
+        ],
+    },
     python_requires=">=3.13",
     classifiers=[
         "Development Status :: 3 - Alpha",
