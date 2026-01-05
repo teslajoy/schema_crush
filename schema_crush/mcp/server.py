@@ -476,6 +476,8 @@ async def _execute_tool(name: str, args: dict) -> Any:
 
 async def main():
     """run the MCP server."""
+    from mcp.server.lowlevel.server import NotificationOptions
+
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -484,7 +486,7 @@ async def main():
                 server_name="schema-crush",
                 server_version="0.1.0",
                 capabilities=server.get_capabilities(
-                    notification_options=None,
+                    notification_options=NotificationOptions(),
                     experimental_capabilities={},
                 )
             )
