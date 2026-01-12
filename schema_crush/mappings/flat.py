@@ -55,6 +55,7 @@ class Destination:
     """single FHIR destination for a source (one-to-many = multiple Destinations)."""
     source_id: str                   # FK to Source.id
     destination: str                 # "Patient.identifier", "Observation.valueQuantity"
+    entity: str = ""                 # "Patient", "Observation" - FHIR resource type
 
     # FHIR coding (for content tier)
     dest_system: str = ""            # "http://snomed.info/sct"
@@ -535,9 +536,12 @@ class FlatMappingDatabase:
         # load destinations
         cur.execute("SELECT * FROM destinations")
         for row in cur.fetchall():
+            # read entity column (added for proper entity tier calibration)
+            entity = row["entity"] if "entity" in row.keys() else ""
             self.add_destination(Destination(
                 source_id=row["source_id"],
                 destination=row["destination"],
+                entity=entity,
                 dest_system=row["dest_system"] or "",
                 dest_code=row["dest_code"] or "",
                 dest_display=row["dest_display"] or "",
