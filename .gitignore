@@ -68,6 +68,7 @@ chroma_db/
 # markdown files (keep out of submission for now)
 *.md
 !README.md
+!schema_crush/knowledge/rules/*.md
 markdown/
 
 # calibration logs and pkl files
@@ -97,3 +98,6 @@ docs/.md
 docs
 calibrators/summaries/*.csv
 img/architecture.png
+mappings_for_review.csv
+
+scripts/
