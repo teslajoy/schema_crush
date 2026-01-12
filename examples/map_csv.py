@@ -20,6 +20,10 @@ def main():
                         required=True, help='Entity type: patient, sample, or file')
     parser.add_argument('--output', '-o', help='Output JSON path (default: stdout)')
     parser.add_argument('--limit', '-n', type=int, help='Limit columns to map')
+    parser.add_argument('--no-profile', action='store_true',
+                        help='Disable CSV profiling (skip use-case detection)')
+    parser.add_argument('--no-llm-profile', action='store_true',
+                        help='Use heuristic profiling only (no LLM call for profiler)')
     args = parser.parse_args()
 
     # check file exists
@@ -44,6 +48,18 @@ def main():
     print(f"found {len(headers)} columns in {csv_path.name}", file=sys.stderr)
     print(f"entity: {args.entity} -> {ENTITY_RESOURCES[args.entity]}", file=sys.stderr)
 
+    # profile csv for context-aware mapping
+    csv_profile = None
+    if not args.no_profile:
+        from schema_crush.orchestrator.agents.csv_profiler import CSVProfiler
+        use_llm = not args.no_llm_profile
+        profiler = CSVProfiler(use_llm=use_llm)
+        csv_profile = profiler.profile(headers, sample_values)
+        print(f"csv profile: use_case={csv_profile.use_case}, entity={csv_profile.primary_entity}", file=sys.stderr)
+        print(f"analysis: {csv_profile.analysis_purpose}", file=sys.stderr)
+        if csv_profile.column_groups:
+            print(f"column groups: {list(csv_profile.column_groups.keys())}", file=sys.stderr)
+
     # limit if requested
     if args.limit:
         headers = headers[:args.limit]
@@ -63,6 +79,7 @@ def main():
             "entity": args.entity,
             "target_resources": target_resources,
             "sample_values": samples,
+            "csv_profile": csv_profile,  # pass profile for context-aware mapping
         }
 
         print(f"mapping: {col}...", file=sys.stderr)

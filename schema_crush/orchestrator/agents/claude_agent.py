@@ -1,11 +1,19 @@
 """claude llm agent for schema mapping with tool use."""
 
 import os
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from schema_crush.orchestrator.agents.base_agent import AutonomousAgent, MappingProposal
 from schema_crush.orchestrator.agents.tools import MAPPING_TOOLS
+
+
+# load fhir template rules from knowledge/rules
+_TEMPLATE_RULES_PATH = Path(__file__).parents[2] / "knowledge" / "rules" / "fhir_template_rules.md"
+FHIR_TEMPLATE_RULES = ""
+if _TEMPLATE_RULES_PATH.exists():
+    FHIR_TEMPLATE_RULES = _TEMPLATE_RULES_PATH.read_text()
 
 
 ENTITY_MATCHING_PROMPT = """you are an expert in biomedical schema mapping.
@@ -15,7 +23,7 @@ task: map a source entity (table/class) to a fhir resource R5 version type.
 you have access to three matching tools:
 1. biobert_match - biomedical semantic similarity
 2. magneto_match - schema structure patterns (trained on gdc->fhir)
-3. rule_match - knowledge base rules (htan/gdc expert mappings)
+3. rule_match - knowledge base rules (fhir aggregator's expert mappings)
 
 guidelines:
 - use multiple tools to gather evidence
@@ -33,13 +41,24 @@ FIELD_MATCHING_PROMPT = """you are a biomedical data expert with deep knowledge 
 
 task: map a source field to the appropriate FHIR R5 resource field path.
 
-THINK FIRST - before using any tools:
+PRIORITY 1 - CHECK FOR CSV CONTEXT RECOMMENDATION:
+if a "recommendation:" is provided in the csv context section below, USE IT as your primary guide.
+the recommendation comes from analyzing the FULL CSV structure and column relationships.
+it has already interpreted cryptic column names (like "death_event_1death_0censor" -> binary survival indicator).
+trust the recommendation and map accordingly, using tools only to confirm the exact FHIR path.
+
+examples of following recommendations:
+- recommendation says "binary survival/death indicator -> Patient.deceasedBoolean" -> use Patient.deceasedBoolean
+- recommendation says "survival duration -> Observation.valueQuantity" -> use Observation.valueQuantity
+- recommendation says "tnm category -> Observation.valueCodeableConcept" -> use Observation.valueCodeableConcept
+
+PRIORITY 2 - IF NO RECOMMENDATION, THINK FIRST:
 1. look at the FIELD NAME - what does it mean semantically?
 2. look at the SAMPLE VALUES if provided - what kind of data is this?
-   - "G1, G2, G3" = tumor grading → relates to Condition staging/grading
-   - "Pancreatic tumor" = tissue type → Specimen.type
-   - "51.1, 6.9" months = survival time → Observation with time value
-   - "GSM12345" = accession ID → identifier field
+   - "G1, G2, G3" = tumor grading -> relates to Condition staging/grading
+   - "Pancreatic tumor" = tissue type -> Specimen.type
+   - "51.1, 6.9" months = survival time -> Observation with time value
+   - "GSM12345" = accession ID -> identifier field
 3. use YOUR DOMAIN KNOWLEDGE - you know FHIR, you know oncology, you know what these terms mean
 
 then use tools to VALIDATE your hypothesis:
@@ -52,7 +71,7 @@ then use tools to VALIDATE your hypothesis:
 
 YOUR REASONING PROCESS:
 1. "This field is called X and has values like Y"
-2. "Based on my knowledge, this represents Z concept"
+2. "The recommendation says Z" (if provided) OR "Based on my knowledge, this represents Z concept"
 3. "In FHIR, the Z concept maps to Resource.field"
 4. "Let me verify with tools..."
 5. "Final answer: Resource.field with confidence N"
@@ -94,6 +113,284 @@ SYSTEM: [http://snomed.info/sct or http://loinc.org etc.]
 DISPLAY: [human readable name]
 CONFIDENCE: [0.0-1.0]
 REASONING: [why this code is appropriate]
+"""
+
+
+# ============================================================================
+# FHIR Transformation Rules (from GDC, CDA, HTAN, ICGC transformers)
+# This is agent policy - tells the agent HOW to correctly map to FHIR
+# ============================================================================
+
+TRANSFORMATION_RULES = """
+## FHIR R5 Transformation Rules
+Consolidated from GDC, CDA, HTAN, ICGC transformers.
+
+---
+
+### Patient Demographics
+| Field | FHIR Path | Notes |
+|-------|-----------|-------|
+| Gender | `Patient.gender` | male/female |
+| Birth Sex | `Patient.extension[us-core-birthsex].valueCode` | F/M/UNK |
+| Race | `Patient.extension[us-core-race].valueString` | US Core extension |
+| Ethnicity | `Patient.extension[us-core-ethnicity].valueString` | US Core extension |
+| Deceased | `Patient.deceasedBoolean` | "Dead"→true, "Alive"→false |
+| Age | `Patient.extension[Patient-age].valueQuantity` | years |
+| Study Link | `Patient.extension[part-of-study].valueReference` | → ResearchStudy |
+
+---
+
+### Condition (Diagnosis)
+| Field | FHIR Path | Notes |
+|-------|-----------|-------|
+| Diagnosis Code | `Condition.code.coding[]` | SNOMED/ICD-10/MONDO |
+| Body Site | `Condition.bodySite[].coding[]` | SNOMED anatomical |
+| Clinical Status | `Condition.clinicalStatus` | "active"/"unknown" |
+| Stage Summary | `Condition.stage[].summary.coding[]` | Stage value (e.g., "Stage IIA") |
+| Stage Type | `Condition.stage[].type.coding[]` | SNOMED stage type code |
+| Stage Assessment | `Condition.stage[].assessment[].reference` | **→ Observation** (forward ref) |
+| Onset Age | `Condition.onsetAge` | Age at diagnosis (unit: years or days) |
+| Onset String | `Condition.onsetString` | age_at_diagnosis as string |
+
+---
+
+### Stage/Grade Hierarchy (Bidirectional References)
+
+**Architecture:** Condition ↔ Observation with parent-child observation grouping.
+
+```
+CONDITION
+  └── stage[n]
+        ├── summary: "Stage IIA"
+        ├── type: SNOMED 1222593009
+        └── assessment[].reference ─────────────────────┐
+                                                        │
+                                                        ▼
+                                    PARENT STAGING OBSERVATION
+                                      ├── code: SNOMED 1222593009
+                                      ├── valueCodeableConcept: "Stage IIA"
+                                      ├── focus[].reference ◄──── back to Condition
+                                      └── hasMember[]:
+                                            ├── → T Stage Observation
+                                            ├── → N Stage Observation
+                                            ├── → M Stage Observation
+                                            └── → Grade Observation
+```
+
+**Condition.stage[] in cancer context contains:**
+- summary: The stage value (e.g., "Stage IIA")
+- type: SNOMED code 1222593009 (Tumor staging)
+- assessment[].reference: Forward pointer to the parent Observation
+
+**Parent Staging Observation contains:**
+- code: Same SNOMED 1222593009
+- valueCodeableConcept: The stage value
+- focus[].reference: Back-pointer to the Condition
+- hasMember[]: Array of child observations for TNM components
+
+**Child Observations (T, N, M, Grade)** are grouped under the parent via hasMember[] references.
+
+**Reference Directions:**
+| From | Path | To | Purpose |
+|------|------|----|---------|
+| Condition | `stage[].assessment[].reference` | Observation | Forward: links to staging detail |
+| Observation | `focus[].reference` | Condition | Back: references diagnosis being staged |
+| Parent Obs | `hasMember[].reference` | Child Obs | Groups T/N/M/Grade under parent |
+
+**Key FHIR Paths:**
+```
+# Condition → Observation (forward)
+Condition.stage[n].assessment[0].reference = "Observation/{stage_obs_id}"
+
+# Observation → Condition (back)
+Observation.focus[0].reference = "Condition/{condition_id}"
+
+# Parent → Children (hierarchical)
+Observation.hasMember[0].reference = "Observation/{t_stage_obs_id}"
+Observation.hasMember[1].reference = "Observation/{n_stage_obs_id}"
+Observation.hasMember[2].reference = "Observation/{m_stage_obs_id}"
+Observation.hasMember[3].reference = "Observation/{grade_obs_id}"
+```
+
+This architecture follows the transformer pattern where staging components are hierarchically organized rather than flat.
+
+---
+
+### Staging SNOMED Codes (Observation.code)
+| Component | SNOMED Code | Display |
+|-----------|-------------|---------|
+| Pathologic Stage Group | `1222593009` | AJCC pathological stage group |
+| Pathologic T | `1222589003` | AJCC pathological T category |
+| Pathologic N | `1222590007` | AJCC pathological N category |
+| Pathologic M | `1222591006` | AJCC pathological M category |
+| Pathologic Grade | `1222599008` | AJCC pathological grade |
+| Clinical Stage Group | `1222592004` | AJCC clinical stage group |
+| Clinical T | `1222585009` | AJCC clinical T category |
+| Clinical N | `1222588006` | AJCC clinical N category |
+| Clinical M | `1222587001` | AJCC clinical M category |
+
+### Grade Value SNOMED Codes (Observation.valueCodeableConcept)
+| Grade | SNOMED Code |
+|-------|-------------|
+| G1 | `1228848004` |
+| G2 | `1228850007` |
+| G3 | `1228851006` |
+| G4 | `1228852004` |
+| GX | `1228855002` |
+
+---
+
+### Observation Patterns
+
+**Categories:**
+| Category | Code | Use Case |
+|----------|------|----------|
+| laboratory | `laboratory` | Biospecimen, staging |
+| survey | `survey` | Demographics (days_to_birth, etc.) |
+| exam | `exam` | Clinical findings |
+| social-history | `social-history` | Smoking, alcohol |
+
+**Survey/Demographic Observations:**
+| Type | Code System | Code | Value Type |
+|------|-------------|------|------------|
+| Year of Birth | ontobee | `NCIT_C83164` | valueQuantity (year) |
+| Year of Death | ontobee | `NCIT_C156426` | valueQuantity (year) |
+| Days to Death | ontobee | `NCIT_C156419` | valueQuantity (days) |
+| Days to Birth | ontobee | `NCIT_C156418` | valueQuantity (days) |
+| Days to Diagnosis | ontobee | `NCIT_C181061` | valueQuantity (days) |
+
+**Biospecimen Observations:**
+| Component | Type | Location |
+|-----------|------|----------|
+| `is_ffpe` | boolean | Observation.component[].valueBoolean |
+| `sample_type` | string | Observation.component[].valueString |
+| `concentration` | float | Observation.component[].valueQuantity |
+| `analyte_type` | string | Observation.component[].valueString |
+
+---
+
+### Specimen Hierarchy
+| Level | Identifier | Parent | Sources |
+|-------|------------|--------|---------|
+| Sample | `Specimen.identifier` | → Patient | GDC, HTAN, ICGC |
+| Portion | `Specimen.identifier` | → Sample | GDC |
+| Analyte | `Specimen.identifier` | → Portion | GDC |
+| Aliquot | `Specimen.identifier` | → Analyte | GDC |
+
+**Key Fields:**
+| Field | FHIR Path |
+|-------|-----------|
+| Type | `Specimen.type.coding[]` |
+| Subject | `Specimen.subject.reference` → Patient |
+| Parent | `Specimen.parent[].reference` → Specimen |
+| Processing | `Specimen.processing[].method.coding[]` |
+| Collection Body Site | `Specimen.collection.bodySite` → CodeableReference(BodyStructure) |
+
+---
+
+### DocumentReference (Files)
+| Field | FHIR Path |
+|-------|-----------|
+| File URL | `DocumentReference.content[].attachment.url` |
+| File Size | `DocumentReference.content[].attachment.size` |
+| File Hash | `DocumentReference.content[].attachment.hash` |
+| File Name | `DocumentReference.content[].attachment.title` |
+| Content Type | `DocumentReference.content[].attachment.contentType` |
+| DRS URI | `DocumentReference.content[].profile[].valueUri` |
+| Data Format | `DocumentReference.type.coding[]` |
+| Data Category | `DocumentReference.category[].coding[]` |
+| Subject | `DocumentReference.subject.reference` → Specimen/Patient/Group |
+
+**Subject Resolution Priority:**
+1. Single specimen → `Reference(Specimen/{id})`
+2. Multiple specimens → `Reference(Group/{id})` (type: "specimen")
+3. Single patient → `Reference(Patient/{id})`
+4. Multiple patients → `Reference(Group/{id})` (type: "person")
+
+---
+
+### MedicationAdministration (Treatments)
+| Field | FHIR Path |
+|-------|-----------|
+| Status | `MedicationAdministration.status` | completed/not-done/unknown/in-progress |
+| Medication | `MedicationAdministration.medication.reference` → Medication |
+| Medication Code | `MedicationAdministration.medication.concept.coding[]` |
+| Subject | `MedicationAdministration.subject.reference` → Patient |
+| Timing | `MedicationAdministration.occurenceTiming.repeat.boundsRange` |
+| Category | `MedicationAdministration.category[].coding[]` | Treatment type |
+
+**Status Logic:**
+| Condition | Status |
+|-----------|--------|
+| `treatment_or_therapy = "yes"` | `completed` |
+| `treatment_or_therapy = "no"` | `not-done` |
+| `days_to_treatment_end` exists | `completed` |
+| `days_to_treatment_end` null | `in-progress` or `unknown` |
+
+---
+
+### Medication & Substance (Drug Details)
+| Field | FHIR Path |
+|-------|-----------|
+| Medication Code | `Medication.code.coding[]` |
+| Ingredient | `Medication.ingredient[].item.reference` → Substance |
+| Substance Code | `Substance.code.reference` → SubstanceDefinition |
+| Structure InChI | `SubstanceDefinition.structure.representation[].representation` |
+| Structure SMILES | `SubstanceDefinition.structure.representation[].representation` |
+
+---
+
+### Key Code Systems
+| System | URL |
+|--------|-----|
+| SNOMED CT | `http://snomed.info/sct` |
+| LOINC | `http://loinc.org` |
+| ICD-10-CM | `https://terminology.hl7.org/NamingSystem-icd10CM` |
+| NCI Thesaurus | `https://ncit.nci.nih.gov` |
+| MONDO | `https://www.ebi.ac.uk/ols4/ontologies/mondo` |
+| CaDSR | `https://cadsr.cancer.gov/` |
+| ChEMBL | `https://www.ebi.ac.uk/chembl` |
+| US Core Race | `http://hl7.org/fhir/us/core/StructureDefinition/us-core-race` |
+| US Core Ethnicity | `http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity` |
+| US Core Birth Sex | `http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex` |
+| Part-of-Study | `http://fhir-aggregator.org/fhir/StructureDefinition/part-of-study` |
+
+---
+
+### Entity → Resource Mapping
+| Source Entity | FHIR Resource |
+|---------------|---------------|
+| case/patient/donor | Patient |
+| project/study/program | ResearchStudy |
+| sample/specimen/biospecimen | Specimen |
+| diagnosis/primary_diagnosis | Condition |
+| file/document | DocumentReference |
+| treatment/therapy | MedicationAdministration |
+| drug/therapeutic_agent | Medication |
+| slide | ImagingStudy |
+| body_site/anatomical_site | BodyStructure |
+| tissue_source_site | Organization |
+
+---
+
+### ID Minting Pattern
+All transformers use deterministic UUIDs:
+`namespace = uuid3(NAMESPACE_DNS, '{source_domain}')`
+`id = uuid5(namespace, f"{project_id}/{resource_type}/{system}|{value}")`
+
+| Source | Namespace Domain |
+|--------|------------------|
+| GDC | `gdc.cancer.gov` |
+| CDA | `cda.readthedocs.io` |
+| HTAN | `data.humantumoratlas.org` |
+| ICGC | `icgc-argo.org` |
+
+---
+
+### Cross-Cutting Extension: part-of-study
+Applied to: Patient, ResearchStudy, ResearchSubject, Condition, Observation, Specimen, BodyStructure, DocumentReference, Group, MedicationAdministration
+
+`{"url": "http://fhir-aggregator.org/fhir/StructureDefinition/part-of-study", "valueReference": {"reference": "ResearchStudy/{id}"}}`
 """
 
 
@@ -148,14 +445,20 @@ class ClaudeAgent(AutonomousAgent):
             task: "entity", "field", or "content"
 
         returns:
-            task-specific system prompt
+            task-specific system prompt with transformation rules and template patterns
         """
         prompts = {
             "entity": ENTITY_MATCHING_PROMPT,
             "field": FIELD_MATCHING_PROMPT,
             "content": CONTENT_MATCHING_PROMPT
         }
-        return prompts.get(task, FIELD_MATCHING_PROMPT)
+        base_prompt = prompts.get(task, FIELD_MATCHING_PROMPT)
+        # append transformation rules as agent policy
+        full_prompt = base_prompt + "\n\n" + TRANSFORMATION_RULES
+        # append fhir template rules from jinja templates (if loaded)
+        if FHIR_TEMPLATE_RULES:
+            full_prompt += "\n\n" + FHIR_TEMPLATE_RULES
+        return full_prompt
 
     def propose_mappings(
         self,
@@ -266,6 +569,33 @@ class ClaudeAgent(AutonomousAgent):
         if context.get("sample_values"):
             vals = context["sample_values"][:5]  # limit to 5 samples
             source_context_str += f"\nsample values: {vals}"
+
+        # add csv profile context if available (from CSVProfiler)
+        csv_profile = context.get("csv_profile")
+        if csv_profile:
+            source_context_str += f"\n\n--- csv context ---"
+            source_context_str += f"\nuse case: {csv_profile.use_case}"
+            source_context_str += f"\nanalysis purpose: {csv_profile.analysis_purpose}"
+            source_context_str += f"\nprimary entity: {csv_profile.primary_entity}"
+
+            # add content type info for this specific field
+            if source_field in csv_profile.content_types:
+                ct = csv_profile.content_types[source_field]
+                source_context_str += f"\ndetected content type: {ct.dtype} (pattern: {ct.pattern}, vocabulary: {ct.vocabulary})"
+
+            # add recommendation if available
+            if source_field in csv_profile.recommendations:
+                source_context_str += f"\nrecommendation: {csv_profile.recommendations[source_field]}"
+
+            # add relationship info if this column is part of a group
+            if source_field in csv_profile.column_relationships:
+                source_context_str += f"\nrelated columns: {csv_profile.column_relationships[source_field]}"
+
+            # add column group context
+            for group_name, cols in csv_profile.column_groups.items():
+                if source_field in cols:
+                    source_context_str += f"\ncolumn group: {group_name} ({', '.join(cols)})"
+                    break
 
         # construct query for llm based on mode (constrained vs generative)
         if candidate_targets:
