@@ -22,18 +22,81 @@ from schema_crush.tools.matchers.magneto_matcher import MagnetoMatcher
 from schema_crush.orchestrator.calibration import ConfidenceCalibrator
 
 
-def get_tier_candidates(db, tier):
+def load_feedback_data():
+    """load feedback data from FeedbackStore for calibration.
+
+    returns list of dicts with: matcher, tier, confidence, was_correct
+    """
+    try:
+        from schema_crush.learning import FeedbackStore
+        fb = FeedbackStore()
+        data = fb.export_for_calibration()
+        if data:
+            print(f"  loaded {len(data)} feedback records from FeedbackStore")
+        return data
+    except Exception as e:
+        print(f"  warning: could not load feedback data: {e}")
+        return []
+
+
+def incorporate_feedback(calibrators: dict, feedback_data: list):
+    """add feedback data to calibrators.
+
+    args:
+        calibrators: dict of matcher_name -> ConfidenceCalibrator
+        feedback_data: list from FeedbackStore.export_for_calibration()
+    """
+    if not feedback_data:
+        return
+
+    added = {name: 0 for name in calibrators}
+
+    for record in feedback_data:
+        matcher = record.get("matcher", "").lower()
+        tier = record.get("tier", "").lower()
+        confidence = record.get("confidence", 0.5)
+        was_correct = record.get("was_correct", False)
+
+        if matcher not in calibrators:
+            continue
+
+        calibrator = calibrators[matcher]
+
+        # add to global key
+        calibrator.add_prediction(matcher, confidence, was_correct)
+
+        # add to tier-specific key
+        if tier in ["entity", "field", "content"]:
+            tier_key = f"{matcher}:{tier}"
+            calibrator.add_prediction(tier_key, confidence, was_correct)
+
+        added[matcher] += 1
+
+    for name, count in added.items():
+        if count > 0:
+            print(f"    {name}: +{count} feedback records")
+
+
+def get_tier_candidates(db, tier, use_entity=False):
     """get destination candidates for a specific tier.
 
     filters destinations to only those associated with sources of the given tier.
     this improves accuracy by reducing candidate space.
+
+    args:
+        db: flat mapping database
+        tier: Tier enum
+        use_entity: if True, return entity (FHIR resource) instead of full path
     """
     candidates = set()
     for src in db.sources.values():
         if src.tier == tier:
             dests = db._dest_by_source.get(src.id, [])
             for d in dests:
-                candidates.add(d.destination)
+                if use_entity:
+                    candidates.add(d.entity)
+                else:
+                    candidates.add(d.destination)
     return list(candidates)
 
 
@@ -45,6 +108,7 @@ def calibrate_matcher_on_tier(
     candidates,
     calibrator,
     max_samples=None,
+    use_entity=False,
 ):
     """calibrate a single matcher on entity/field tiers (NOT content).
 
@@ -56,6 +120,7 @@ def calibrate_matcher_on_tier(
         candidates: list of candidate destinations
         calibrator: ConfidenceCalibrator to add predictions to
         max_samples: optional limit on samples
+        use_entity: if True, match against entity (FHIR resource) instead of full path
 
     returns:
         list of result dicts with predictions
@@ -73,8 +138,13 @@ def calibrate_matcher_on_tier(
         dests = db._dest_by_source.get(src.id, [])
         if not dests:
             continue
-        ground_truths = {d.destination.lower() for d in dests}
-        gt_display = dests[0].destination
+        # for entity tier, use entity (FHIR resource) instead of full path
+        if use_entity:
+            ground_truths = {d.entity.lower() for d in dests if d.entity}
+            gt_display = dests[0].entity
+        else:
+            ground_truths = {d.destination.lower() for d in dests}
+            gt_display = dests[0].destination
 
         # get matcher prediction (pass schema for rule matcher to disambiguate)
         try:
@@ -274,16 +344,19 @@ def plot_tier_calibration(calibrator, matcher_name, output_path):
     print(f"  saved: {output_path}")
 
 
-def main(use_expert_embeddings: bool = False):
+def main(use_expert_embeddings: bool = False, include_feedback: bool = False):
     """calibrate all matchers using flat mappings with tier awareness.
 
     args:
         use_expert_embeddings: if True, use expert embeddings for BioBERT/Magneto
+        include_feedback: if True, incorporate user feedback from FeedbackStore
     """
     print("="*70)
     print("FLAT MAPPING CALIBRATION (tier-aware)")
     if use_expert_embeddings:
         print("  >> using expert embeddings for BioBERT/Magneto")
+    if include_feedback:
+        print("  >> including user feedback from FeedbackStore")
     print("="*70)
 
     # load flat database
@@ -297,12 +370,14 @@ def main(use_expert_embeddings: bool = False):
     print(f"  schemas: {stats['schemas']}")
 
     # get candidates per tier
+    # entity tier uses FHIR resources (Patient, Specimen, etc), not full paths
     print("\nbuilding candidate sets per tier...")
-    entity_candidates = get_tier_candidates(db, Tier.ENTITY)
+    entity_candidates = get_tier_candidates(db, Tier.ENTITY, use_entity=True)
     field_candidates = get_tier_candidates(db, Tier.FIELD)
     content_candidates = list(set(t.fhir_path for t in db.content_fhir_targets))
 
-    print(f"  entity candidates: {len(entity_candidates)}")
+    print(f"  entity candidates (FHIR resources): {len(entity_candidates)}")
+    print(f"    -> {sorted(entity_candidates)}")
     print(f"  field candidates: {len(field_candidates)}")
     print(f"  content candidates (FHIR paths): {len(content_candidates)}")
 
@@ -334,7 +409,7 @@ def main(use_expert_embeddings: bool = False):
 
         calibrator = ConfidenceCalibrator()
 
-        # entity tier
+        # entity tier - match source to FHIR resource
         print(f"\n  entity tier ({len(entity_candidates)} candidates)...")
         results = calibrate_matcher_on_tier(
             matcher=matcher,
@@ -344,6 +419,7 @@ def main(use_expert_embeddings: bool = False):
             candidates=entity_candidates,
             calibrator=calibrator,
             max_samples=None,
+            use_entity=True,  # match against FHIR resource names
         )
         for r in results:
             r["matcher"] = matcher_name
@@ -397,6 +473,21 @@ def main(use_expert_embeddings: bool = False):
             key = f"{matcher_name}:{tier}"
             if key in calibrator.calibration_data:
                 calibrator.print_calibration_report(key)
+
+    # incorporate user feedback if requested
+    if include_feedback:
+        print("\n" + "="*70)
+        print("INCORPORATING USER FEEDBACK")
+        print("="*70)
+        feedback_data = load_feedback_data()
+        if feedback_data:
+            incorporate_feedback(calibrators, feedback_data)
+            # recalibrate after adding feedback
+            for matcher_name, calibrator in calibrators.items():
+                calibrator.calibrate_all()
+            print("  recalibrated with feedback data")
+        else:
+            print("  no feedback data found")
 
     # summary table
     print("\n" + "="*70)
@@ -508,11 +599,12 @@ if __name__ == "__main__":
 
     @click.command()
     @click.option("--embeddings", is_flag=True, help="Use expert embeddings for BioBERT/Magneto")
+    @click.option("--feedback", is_flag=True, help="Include user feedback from FeedbackStore")
     @click.option("--compare", is_flag=True, help="Run both modes and show comparison")
-    def cli(embeddings, compare):
+    def cli(embeddings, feedback, compare):
         if compare:
             compare_embeddings()
         else:
-            main(use_expert_embeddings=embeddings)
+            main(use_expert_embeddings=embeddings, include_feedback=feedback)
 
     cli()
