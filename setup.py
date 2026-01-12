@@ -19,7 +19,7 @@ with open(readme_file, encoding="utf-8") as f:
 
 setup(
     name="schema_crush",
-    version="0.2.0",
+    version="1.2.0",
     description="map biomedical schemas to FHIR using agentic AI with calibrated matchers as tools with MCP server support",
     long_description=long_description,
     long_description_content_type="text/markdown",
