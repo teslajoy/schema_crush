@@ -128,7 +128,7 @@ TOOLS = [
     ),
     types.Tool(
         name="lookup_mapping",
-        description="Direct O(1) lookup in the flat mapping database. Returns exact matches from curated GDC/HTAN mappings.",
+        description="Direct O(1) lookup in the flat mapping database. Returns ALL matches from curated GDC/HTAN mappings.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -143,6 +143,11 @@ TOOLS = [
                 "schema": {
                     "type": "string",
                     "description": "Optional schema filter (e.g., 'gdc', 'htan')"
+                },
+                "include_content": {
+                    "type": "boolean",
+                    "description": "Include content value mappings (ex, 'G1' -> SNOMED code)",
+                    "default": False
                 }
             },
             "required": ["source_term"]
@@ -309,6 +314,49 @@ TOOLS = [
             "required": []
         }
     ),
+    types.Tool(
+        name="get_transformation_rules",
+        description="Get FHIR transformation rules consolidated from GDC, CDA, HTAN, ICGC transformers. Use this to understand correct FHIR paths for biomedical data fields like staging, demographics, specimens.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": "Optional section filter: 'patient', 'condition', 'staging', 'snomed', 'grade', 'observation', 'specimen', 'document', 'medication', 'codes', 'entities', or 'all'",
+                    "default": "all"
+                }
+            },
+            "required": []
+        }
+    ),
+    types.Tool(
+        name="profile_csv",
+        description="Analyze a CSV to understand its use-case, column relationships, and get mapping recommendations. Use BEFORE mapping to get context about cryptic column names like 'death_event_1death_0censor'. Returns use-case (survival_analysis, variant_tracking, etc.), column groups, content types, and FHIR mapping recommendations.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of column names from the CSV"
+                },
+                "sample_data": {
+                    "type": "object",
+                    "description": "Dict mapping column names to list of sample values (3-5 values per column)",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "use_llm": {
+                    "type": "boolean",
+                    "description": "Use LLM for enhanced profiling (interprets cryptic names). Default true.",
+                    "default": True
+                }
+            },
+            "required": ["columns", "sample_data"]
+        }
+    ),
 ]
 
 
@@ -367,15 +415,34 @@ async def _execute_tool(name: str, args: dict) -> Any:
             context=args.get("context"),
             schema=args.get("schema")
         )
-        return [
+        results = [
             {
                 "source": src.source,
                 "target": dest.destination,
                 "schema": src.source_schema,
-                "tier": src.tier.value
+                "tier": src.tier.value,
+                "context": src.source_context or ""
             }
-            for src, dest in mappings[:10]
+            for src, dest in mappings  # no limit - return ALL
         ]
+
+        # optionally include content value mappings
+        if args.get("include_content"):
+            content_mappings = kb.db.lookup_content(args["source_term"])
+            for cv, targets in content_mappings:
+                for cft in targets:
+                    results.append({
+                        "source": cv.source_value,
+                        "target": cft.fhir_path,
+                        "schema": cv.source_category,
+                        "tier": "content",
+                        "context": cft.context or "",
+                        "code": cv.code,
+                        "system": cv.system,
+                        "display": cv.display
+                    })
+
+        return results
 
     elif name == "find_similar":
         kb = get_knowledge_base()
@@ -470,6 +537,73 @@ async def _execute_tool(name: str, args: dict) -> Any:
         fb = FeedbackStore()
         return fb.stats()
 
+    elif name == "get_transformation_rules":
+        # import from claude_agent (single source of truth)
+        from schema_crush.orchestrator.agents.claude_agent import TRANSFORMATION_RULES
+        section = args.get("section", "all").lower()
+
+        # section filters - map to markdown headers
+        sections = {
+            "patient": "### Patient Demographics",
+            "condition": "### Condition (Diagnosis)",
+            "staging": "### Stage/Grade Hierarchy",
+            "hierarchy": "### Stage/Grade Hierarchy",
+            "snomed": "### Staging SNOMED Codes",
+            "grade": "### Grade Value SNOMED Codes",
+            "observation": "### Observation Patterns",
+            "specimen": "### Specimen Hierarchy",
+            "document": "### DocumentReference",
+            "medication": "### MedicationAdministration",
+            "codes": "### Key Code Systems",
+            "entities": "### Entity → Resource Mapping",
+        }
+
+        if section == "all":
+            return TRANSFORMATION_RULES
+        elif section in sections:
+            # extract just that section
+            start_marker = sections[section]
+            lines = TRANSFORMATION_RULES.split("\n")
+            result = []
+            in_section = False
+            for line in lines:
+                if line.startswith(start_marker):
+                    in_section = True
+                elif line.startswith("### ") and in_section:
+                    break
+                if in_section:
+                    result.append(line)
+            return "\n".join(result) if result else f"Section '{section}' not found. Available: {', '.join(sections.keys())}, all"
+        else:
+            return f"Unknown section: {section}. Available: {', '.join(sections.keys())}, all"
+
+    elif name == "profile_csv":
+        from schema_crush.orchestrator.agents.csv_profiler import CSVProfiler
+        use_llm = args.get("use_llm", True)
+        profiler = CSVProfiler(use_llm=use_llm)
+        profile = profiler.profile(args["columns"], args["sample_data"])
+
+        # convert to serializable dict
+        content_types = {}
+        for col, ct in profile.content_types.items():
+            content_types[col] = {
+                "dtype": ct.dtype,
+                "pattern": ct.pattern,
+                "vocabulary": ct.vocabulary,
+                "nullable": ct.nullable
+            }
+
+        return {
+            "use_case": profile.use_case,
+            "analysis_purpose": profile.analysis_purpose,
+            "data_provenance": profile.data_provenance,
+            "primary_entity": profile.primary_entity,
+            "column_groups": profile.column_groups,
+            "content_types": content_types,
+            "column_relationships": profile.column_relationships,
+            "recommendations": profile.recommendations
+        }
+
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -484,7 +618,7 @@ async def main():
             write_stream,
             InitializationOptions(
                 server_name="schema-crush",
-                server_version="0.1.0",
+                server_version="1.2.0",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
