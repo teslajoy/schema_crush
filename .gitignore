@@ -93,9 +93,9 @@ examples/*.png
 data
 calibrators/summaries/*.csv
 .claude/
-docs/.png
-docs/.md
-docs
+# docs - only expose architecture_current.md
+docs/*
+!docs/architecture_current.md
 calibrators/summaries/*.csv
 img/architecture.png
 mappings_for_review.csv
