@@ -55,6 +55,62 @@ run demos:
 python examples/demo_claude_agent.py
 ```
 
+## geo data workflow
+
+download public GEO datasets and map them to FHIR.
+
+### 1. fetch geo data
+
+```bash
+# list available datasets
+python examples/fetch_geo.py --list
+
+# download one dataset (default: GSE71729)
+python examples/fetch_geo.py GSE71729
+
+# download all pancreatic cancer datasets
+python examples/fetch_geo.py --all
+```
+
+this downloads to `data/geo/`:
+- `GSE*_metadata.csv` - full sample metadata
+- `GSE*_clinical.csv` - parsed clinical characteristics
+- `GSE*_expression.csv` - gene expression matrix (if available)
+
+curated pancreatic datasets: GSE62452, GSE28735, GSE15471, GSE21501, GSE57495, GSE71729
+
+### 2. map to fhir
+
+```bash
+# map clinical columns to FHIR fields
+python examples/map_csv.py data/geo/GSE71729_clinical.csv -e sample -o mappings.json
+```
+
+### 3. review mappings
+
+output shows source -> target with confidence:
+```json
+[
+  {"source": "sample_id", "target": "Specimen.identifier", "confidence": 1.0},
+  {"source": "tumor_subtype", "target": "Observation.valueCodeableConcept", "confidence": 0.85},
+  {"source": "survival_months", "target": "Observation.valueQuantity", "confidence": 0.85},
+  {"source": "death_event_1death_0censor", "target": "Patient.deceasedBoolean", "confidence": 0.95}
+]
+```
+
+### example: full pipeline
+
+```bash
+# 1. fetch GEO data
+python examples/fetch_geo.py GSE71729
+
+# 2. map with profiling (interprets cryptic column names)
+python examples/map_csv.py data/geo/GSE71729_clinical.csv -e sample
+
+# 3. save mappings to file
+python examples/map_csv.py data/geo/GSE71729_clinical.csv -e sample -o mappings.json
+```
+
 ## csv profiling
 
 the csv profiler analyzes your data before mapping to understand:
