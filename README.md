@@ -4,7 +4,9 @@
   <img src="./img/schema_crush.png" alt="mapping" width="150"/>
 </p>
 
-a modular framework for semantic schema matching that aligns heterogeneous biomedical schemas to fhir standards using multi-agent ai. trained on fhir aggregator data (ex. htan, gdc), and others.
+a modular framework for semantic schema matching that aligns heterogeneous biomedical schemas to fhir standards using calibrated matchers, curated knowledge, and optional llm-assisted review.
+
+built on expert-curated fhir aggregator mappings (gdc, htan) with human-in-the-loop feedback and guarded calibration.
 
 ![Status](https://img.shields.io/badge/Status-Build%20Passing-lgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -23,7 +25,7 @@ pip install -e .
 
 map a csv file to fhir:
 ```bash
-python map_csv.py data.csv --entity patient -o mappings.json
+python examples/map_csv.py data.csv --entity patient -o mappings.json
 ```
 
 entity types:
@@ -40,15 +42,41 @@ output:
 ```
 
 options:
-```
-python map_csv.py data.csv -e patient              # print to stdout
-python map_csv.py data.csv -e sample -o out.json   # save to file
-python map_csv.py data.csv -e file -n 5            # limit to first 5 columns
+```bash
+python examples/map_csv.py data.csv -e patient              # with csv profiler (default)
+python examples/map_csv.py data.csv -e patient --no-profile # skip profiling
+python examples/map_csv.py data.csv -e patient --no-llm-profile  # heuristics only
+python examples/map_csv.py data.csv -e sample -o out.json   # save to file
+python examples/map_csv.py data.csv -e file -n 5            # limit to first 5 columns
 ```
 
 run demos:
 ```bash
 python examples/demo_claude_agent.py
+```
+
+## csv profiling
+
+the csv profiler analyzes your data before mapping to understand:
+- **use case**: survival analysis, variant tracking, lab results, staging/grading, etc.
+- **column relationships**: survival_time + death_event pairs, tnm groupings
+- **cryptic column names**: `death_event_1death_0censor` -> "binary survival indicator (1=death, 0=censored)"
+
+this context helps the llm make better mapping decisions for ambiguous fields.
+
+example profile output:
+```json
+{
+  "use_case": "survival_analysis",
+  "analysis_purpose": "clinical survival data from geo for pancreatic cancer cohort",
+  "column_groups": {
+    "survival": ["survival_months", "death_event_1death_0censor"],
+    "staging": ["stage", "t_stage", "n_stage"]
+  },
+  "recommendations": {
+    "death_event_1death_0censor": "binary survival indicator -> Patient.deceasedBoolean (1=true, 0=false)"
+  }
+}
 ```
 
 ## core architecture
@@ -59,11 +87,12 @@ python examples/demo_claude_agent.py
 | knowledge | `knowledge/mapping_rules/` | curated mapping rules (gdc, htan -> fhir) |
 | embedders | `tools/embeddings/` | biobert (biomedical) + magneto (schema-trained) |
 | matchers | `tools/matchers/` | biobertmatcher, magnetomatcher, rulematcher |
-| agent | `orchestrator/agents/` | claudeagent with llm tool-calling |
-| orchestrator | `orchestrator/pearl_agent.py` | pearl workflow (perceive, reason, act, hitl, learn) |
-| learning | `learning/` | knowledgebase, mappingvectorstore (chromadb) |
+| calibration | `orchestrator/calibration.py` | tier-aware confidence calibration |
+| agent | `orchestrator/agents/` | claudeagent with llm tool-calling (optional) |
+| feedback | `learning/feedback_store.py` | hitl decisions for evaluation and guarded retraining |
+| retrieval | `learning/mapping_vector_store.py` | chromadb semantic index (rebuildable from sqlite) |
 
-## training data sources
+## curated knowledge sources
 
 | source | description |
 |--------|-------------|
@@ -71,7 +100,9 @@ python examples/demo_claude_agent.py
 | htan | human tumor atlas network -> fhir mappings |
 | others | additional fhir aggregator sources |
 
-## fhir aggregator data (available for training)
+these datasets provide expert-curated source -> fhir mappings. schema crush does not fine-tune models on this data; it uses it to build a canonical mapping database and to calibrate matcher confidence.
+
+## fhir aggregator data (used for calibration)
 
 | source | patients | specimens | observations | documents |
 |--------|----------|-----------|--------------|-----------|
@@ -106,8 +137,8 @@ python examples/demo_claude_agent.py
 | knowledgebase | done | unified loader for all knowledge |
 | vector store | done | chromadb for similarity search |
 | pearl orchestrator | partial | state machine defined, needs updates |
+| feedback store | done | sqlite-backed with traceability |
 | hitl interface | missing | web/cli ui for review |
-| feedback store | missing | persist hitl decisions |
 | adaptive weights | missing | auto-adjust tool weights |
 | cli integration | missing | `schema_crush match source.csv` |
 
@@ -123,7 +154,50 @@ python examples/demo_claude_agent.py
 
 ## calibration system
 
-calibration maps raw matcher confidence to actual accuracy. uses backoff-key scheme to handle sparse contexts.
+### what is calibrated confidence?
+
+a classifier is **calibrated** when its predicted confidence equals its actual accuracy: if a model says "90% confident", it should be correct 90% of the time. most ml models are **overconfident** — they output high scores even when wrong.
+
+**calibration** learns a mapping from raw scores to true probabilities using held-out data:
+
+```
+P(correct | confidence = c) ≈ c   (perfectly calibrated)
+```
+
+we measure calibration quality using **expected calibration error (ECE)**:
+
+```
+ECE = Σ (|Bₘ|/n) · |acc(Bₘ) - conf(Bₘ)|
+```
+
+where `Bₘ` are confidence bins, `acc()` is accuracy within bin, `conf()` is mean confidence. lower ECE = better calibrated. a perfectly calibrated model has ECE = 0.
+
+**reliability diagrams** visualize this: plot accuracy vs confidence per bin — a calibrated model follows the diagonal.
+
+references: platt scaling (platt, 1999), temperature scaling (guo et al., 2017), histogram binning (zadrozny & elkan, 2001).
+
+### how confidence is computed
+
+confidence scores come from different sources depending on the matching path:
+
+| path | confidence source | calibrated? |
+|------|-------------------|-------------|
+| **exact match** | `1.0` hardcoded — found verbatim in knowledge base | n/a (always correct) |
+| **fuzzy match** | fuzzywuzzy string similarity ratio (0-1) | no (empirically reliable >0.85) |
+| **embedding match** | cosine similarity from biobert/magneto | **yes** — mapped via calibration curves |
+| **llm fallback** | model's self-reported confidence | no (uncalibrated) |
+
+example:
+```
+sample_id -> 1.0    # exact lookup in flat_mappings.db
+tissue -> 0.9       # fuzz.ratio("tissue", "TumorTissueType") ≈ 90%
+tumor_grade -> 0.87 # magneto cosine sim → calibrated to 87% true accuracy
+survival -> 0.85    # llm stated "85% confident"
+```
+
+### calibration implementation
+
+calibration maps raw embedding matcher scores to actual accuracy. uses backoff-key scheme to handle sparse contexts.
 
 ### how it works
 
@@ -154,21 +228,42 @@ generated in `examples/` and `calibrators/calibration_logs/`:
 | `calibration_key_stats.png` | sample counts per key, which keys are eligible |
 | `*_flat_calibration.png` | per-tier breakdown (entity, field, content) |
 
-### current results (dec 2025)
+### current results (jan 2026)
 
-| matcher | tier | accuracy | ece | notes |
-|---------|------|----------|-----|-------|
-| **rule** | entity | 52.1% | 0.48 | one-to-many mappings (source → multiple valid targets) |
-| **rule** | field | **94.7%** | 0.05 | excellent |
-| **rule** | content | **99.6%** | 0.004 | near-perfect (terminology lookups) |
-| biobert | entity | 1.3% | 0.85 | overconfident, use calibrated score |
-| biobert | field | 14.7% | 0.74 | overconfident |
-| biobert | content | 69.8% | 0.24 | better on terminology |
-| magneto | entity | 3.8% | 0.29 | low confidence but honest |
-| magneto | field | 26.7% | 0.25 | moderate |
-| magneto | content | 70.0% | 0.05 | well-calibrated on terminology |
+| matcher | tier | accuracy | ece | status |
+|---------|------|----------|-----|--------|
+| **rule** | entity | **97.6%** | 0.005 | excellent |
+| **rule** | field | **92.0%** | 0.08 | well-calibrated |
+| **rule** | content | **99.2%** | 0.008 | near-perfect |
+| biobert | entity | 5.9% | 0.79 | overconfident |
+| biobert | field | 13.3% | 0.74 | overconfident |
+| biobert | content | 68.0% | 0.26 | moderate |
+| magneto | entity | 13.4% | 0.14 | moderate |
+| magneto | field | 23.3% | 0.27 | moderate |
+| magneto | content | **72.4%** | 0.04 | well-calibrated |
 
-**why "global" accuracy differs from "content"**: global = weighted average of entity + field + content. entity matching is harder (52% for rule, 1-4% for embedders), which pulls down the global average. content matching (terminology lookups) is easier since it's often exact matches.
+### calibration dataset
+
+| metric | value |
+|--------|-------|
+| total sources | 2,346 |
+| total destinations | 2,563 |
+| entity tier samples | 984 |
+| field tier samples | 941 |
+| content tier samples | 421 |
+| content values (coded) | 1,557 |
+
+**schemas included**: gdc, htan, cda, icgc, gtex, 1000genome, cellosaurus
+
+**entity candidates** (10 FHIR resources):
+```
+Condition, Device, DocumentReference, Medication, MedicationAdministration,
+Observation, Patient, ResearchStudy, ServiceRequest, Specimen
+```
+
+**why rule matcher excels**: uses exact/fuzzy matching against curated mappings from gdc/htan transformers. entity tier now matches source → FHIR resource (not full path), improving from 52% to 97.6%.
+
+**reference field coverage**: subject_ref 92.3%, focus_ref 18.2%, specimen_ref 9.8%
 
 ### retrain calibrators
 
@@ -216,7 +311,9 @@ source schema (csv/json)
 | calibrated scores | confidence reflects true accuracy |
 | few-shot context | similar mappings passed to llm |
 
-## pearl agent workflow (legacy - not active)
+## pearl agent workflow (historical)
+
+this workflow describes an earlier theoretical experimental orchestration model and is not currently active in the production system. current execution uses deterministic matcher + calibration pipelines with optional llm assistance.
 
 ```
 perceive -> reason -> act -> hitl -> learn -> (next tier or end)
@@ -228,7 +325,7 @@ perceive -> reason -> act -> hitl -> learn -> (next tier or end)
 - hitl: queue medium confidence (85-95%) matches for human review
 - learn: collect metrics and update from feedback
 
-## confidence levels (legacy)
+## confidence levels (historical)
 
 - high: score >= 95% (auto-accept)
 - medium: score 85-95% (requires hitl)
@@ -241,18 +338,23 @@ perceive -> reason -> act -> hitl -> learn -> (next tier or end)
 ```
 schema_crush/
 ├── tools/
-│   ├── embeddings/         # biobert, magneto wrappers
-│   ├── matchers/           # basematcher interface + implementations
-│   └── fhir_schema_tool.py # linkml fhir schema explorer
+│   ├── embeddings/           # biobert, magneto wrappers
+│   ├── matchers/             # basematcher interface + implementations
+│   └── fhir_schema_tool.py   # linkml fhir schema explorer
 ├── orchestrator/
-│   ├── agents/             # claudeagent + tool definitions
-│   ├── pearl_agent.py      # pearl workflow (langgraph)
-│   └── calibration.py      # confidence calibration
-├── mappings/               # flatmappingdatabase, loaders
-├── knowledge/              # mapping rules, parsers
-├── learning/               # knowledgebase, vectorstore
-├── loaders/                # csv loader (limited)
-└── data/resources/         # gdc/htan json mappings, linkml schema
+│   ├── agents/
+│   │   ├── claude_agent.py   # llm with tool-calling + fhir rules
+│   │   ├── csv_profiler.py   # use-case detection + recommendations
+│   │   └── tools.py          # tool definitions for agent
+│   ├── pearl_agent.py        # pearl workflow (langgraph)
+│   └── calibration.py        # confidence calibration
+├── mappings/                 # flatmappingdatabase, loaders
+├── knowledge/
+│   ├── mapping_rules/        # gdc, htan parsers
+│   └── rules/                # fhir transformation + template rules (md)
+├── learning/                 # knowledgebase, vectorstore
+├── mcp/                      # mcp server (14 tools)
+└── data/resources/           # gdc/htan json mappings, linkml schema
 ```
 
 ## loaders
@@ -266,14 +368,130 @@ schema_crush/
 
 data flow: `curated_loader` + `fhir_aggregator_loader` → `normalizer` -> `flat_loader` (sqlite)
 
+## mcp server
+
+expose schema_crush as an mcp (model context protocol) server for claude desktop/code.
+
+### run server
+
+```bash
+python -m schema_crush.mcp.server
+```
+
+or add to claude desktop config (`~/.config/claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "schema-crush": {
+      "command": "python",
+      "args": ["-m", "schema_crush.mcp.server"],
+      "cwd": "/path/to/schema_crush"
+    }
+  }
+}
+```
+
+### tools (14)
+
+| tool | description | location |
+|------|-------------|----------|
+| **profiling** | | |
+| `profile_csv` | analyze csv use-case, interpret cryptic column names, get mapping recommendations | `orchestrator/agents/csv_profiler.py` |
+| **matchers** | | |
+| `biobert_match` | semantic matching using biobert embeddings | `tools/matchers/biobert_matcher.py` |
+| `magneto_match` | schema-trained matching using magneto | `tools/matchers/magneto_matcher.py` |
+| `rule_match` | exact/fuzzy matching against curated rules | `tools/matchers/rule_matcher.py` |
+| **lookups** | | |
+| `lookup_mapping` | find all mappings for a source term | `learning/knowledge_base.py` |
+| `find_similar` | find similar source terms in knowledge base | `learning/mapping_vector_store.py` |
+| **fhir schema** | | |
+| `explore_fhir_resource` | get fields and structure of a fhir r5 resource | `tools/fhir_schema_tool.py` |
+| `search_fhir_fields` | search for fhir fields by keyword | `tools/fhir_schema_tool.py` |
+| **terminology** | | |
+| `search_snomed` | search snomed ct codes by term | tx.fhir.org API |
+| `search_loinc` | search loinc codes by term | clinicaltables.nlm.nih.gov API |
+| `search_ontology` | search ontologies (nci thesaurus, etc.) | ebi.ac.uk/ols4 API |
+| **feedback** | | |
+| `record_feedback` | record user corrections to mappings | `learning/feedback_store.py` |
+| `get_feedback_stats` | get feedback statistics | `learning/feedback_store.py` |
+| **reference** | | |
+| `get_transformation_rules` | get fhir transformation rules | `orchestrator/agents/claude_agent.py` |
+
+### example queries
+
+```
+"where does tumor_grade map to in FHIR?"
+-> calls lookup_mapping, returns Observation.valueCodeableConcept.text + SNOMED codes
+
+"what fields does Patient have?"
+-> calls explore_fhir_resource
+
+"find SNOMED code for adenocarcinoma"
+-> calls search_snomed, returns 35917007
+
+"how do I map staging to FHIR?"
+-> calls get_transformation_rules with section=staging
+```
+
+## knowledge layer
+
+### transformation rules
+
+fhir transformation rules consolidated from gdc, cda, htan, icgc transformers.
+
+| document | location | purpose |
+|----------|----------|---------|
+| transformation rules | `knowledge/rules/fhir_transformation_rules.md` | full documentation (700+ lines) |
+| template rules | `knowledge/rules/fhir_template_rules.md` | fhir patterns from jinja templates |
+| mcp operational | inline in `mcp/server.py` | quick lookup via `get_transformation_rules` |
+
+sections covered: patient demographics, condition/diagnosis, staging hierarchy, snomed codes, observation patterns, specimen hierarchy, documentreference, medicationadministration, id minting, extensions.
+
+### vector store (chromadb)
+
+chromadb is used as a **derived semantic retrieval index** to support:
+- `find_similar` lookups
+- few-shot context for llm-assisted review
+
+chromadb is fully rebuildable from `flat_mappings.db` and is **not a learning or feedback store**. canonical truth always lives in sqlite.
+
+location: `schema_crush/data/db/chroma/`
+
+### feedback store
+
+sqlite-backed store for hitl decisions with full traceability.
+
+| field | purpose |
+|-------|---------|
+| `user_id` | who made the decision |
+| `timestamp` | when (iso utc) |
+| `source` + `source_context` | what was being mapped |
+| `proposed_target` | system proposal |
+| `ground_truth` | user correction (if any) |
+| `decision` | accept/reject/correct |
+| `matcher` + `tier` + `confidence` | matcher context |
+
+location: `schema_crush/data/db/feedback.db`
+
+exports:
+- `export_for_calibration()` -> retrain calibrators with user decisions
+- `export_new_mappings()` -> add corrections to knowledge base
+
+retrain with feedback:
+```bash
+python calibrators/calibrate_flat_mappings.py --feedback
+```
+
+> **current limitations**: feedback is incorporated into calibration in a one-way manner. planned safeguards include holdout splits, minimum sample thresholds, metric regression checks (ece/brier), and versioned retraining.
+
 ## what's missing
 
 | planned | status | notes |
 |---------|--------|-------|
 | mapping workbench | design done | drag-drop ui for hitl review, see docs/MAPPING_WORKBENCH.md |
 | fhir aggregator training | not started | learn from real fhir data (patterns, codes, references) |
-| mcp server | not started | expose as model context protocol server for claude desktop/code |
-| chromadb persistence | in-memory only | not persisted to disk |
+| rest api | not started | fastapi wrapper around mcp tools |
+| chromadb persistence | done | rebuildable index stored on disk |
 | synthia integration | not started | synthetic fhir data generation |
 | fine-tuning pipeline | not started | triplet loss training |
 | hitl clustered feedback | not started | group similar matches for bulk review |
