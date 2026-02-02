@@ -1,0 +1,208 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" font-family="Arial, Helvetica, sans-serif">
+  <rect width="1200" height="460" fill="white"/>
+
+  <defs>
+    <marker id="ah" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5 Z" fill="#444"/></marker>
+  </defs>
+
+  <!-- ===== SOURCE ===== -->
+  <g transform="translate(30, 20)">
+    <rect width="108" height="46" rx="4" fill="#ECEFF1" stroke="#78909C" stroke-width="1.4"/>
+    <text x="54" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#1a1a1a">Source Data</text>
+    <text x="54" y="35" text-anchor="middle" font-size="9.5" fill="#333">CSV / JSON</text>
+  </g>
+
+  <line x1="142" y1="43" x2="172" y2="43" stroke="#444" stroke-width="1.4" marker-end="url(#ah)"/>
+
+  <!-- Step 1: KB Exact -->
+  <g transform="translate(178, 12)">
+    <rect width="195" height="62" rx="4" fill="#E8F5E9" stroke="#2E7D32" stroke-width="1.5"/>
+    <rect width="195" height="18" rx="4" fill="#2E7D32"/>
+    <rect y="14" width="195" height="5" fill="#2E7D32"/>
+    <text x="98" y="13" text-anchor="middle" font-size="10" font-weight="bold" fill="white">1. KB Exact Lookup</text>
+    <text x="98" y="32" text-anchor="middle" font-size="9" fill="#1a1a1a">2,346 expert-validated mappings</text>
+    <text x="98" y="44" text-anchor="middle" font-size="9" fill="#333">curated knowledge base</text>
+    <text x="98" y="57" text-anchor="middle" font-size="9" font-weight="bold" fill="#1a1a1a">conf = 1.0</text>
+  </g>
+  <line x1="378" y1="43" x2="410" y2="43" stroke="#444" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="394" y="37" text-anchor="middle" font-size="8" fill="#888" font-style="italic">miss</text>
+
+  <!-- Step 2: Fuzzy -->
+  <g transform="translate(416, 12)">
+    <rect width="195" height="62" rx="4" fill="#FFF3E0" stroke="#E65100" stroke-width="1.5"/>
+    <rect width="195" height="18" rx="4" fill="#E65100"/>
+    <rect y="14" width="195" height="5" fill="#E65100"/>
+    <text x="98" y="13" text-anchor="middle" font-size="10" font-weight="bold" fill="white">2. Fuzzy String Match</text>
+    <text x="98" y="32" text-anchor="middle" font-size="9" fill="#1a1a1a">handles minor name variations</text>
+    <text x="98" y="44" text-anchor="middle" font-size="9" fill="#333">token-sort, partial ratio</text>
+    <text x="98" y="57" text-anchor="middle" font-size="9" font-weight="bold" fill="#1a1a1a">conf = 0.85 – 0.95</text>
+  </g>
+  <line x1="616" y1="43" x2="648" y2="43" stroke="#444" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="632" y="37" text-anchor="middle" font-size="8" fill="#888" font-style="italic">miss</text>
+
+  <!-- Step 3: Embeddings -->
+  <g transform="translate(654, 12)">
+    <rect width="195" height="62" rx="4" fill="#E3F2FD" stroke="#1565C0" stroke-width="1.5"/>
+    <rect width="195" height="18" rx="4" fill="#1565C0"/>
+    <rect y="14" width="195" height="5" fill="#1565C0"/>
+    <text x="98" y="13" text-anchor="middle" font-size="10" font-weight="bold" fill="white">3. Embedding Similarity</text>
+    <text x="98" y="32" text-anchor="middle" font-size="9" fill="#1a1a1a">BioBERT (biomedical)</text>
+    <text x="98" y="44" text-anchor="middle" font-size="9" fill="#1a1a1a">Magneto (schema-aware)</text>
+    <text x="98" y="57" text-anchor="middle" font-size="9" font-weight="bold" fill="#1a1a1a">calibrated confidence</text>
+  </g>
+  <line x1="854" y1="43" x2="886" y2="43" stroke="#444" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="870" y="37" text-anchor="middle" font-size="8" fill="#888" font-style="italic">miss</text>
+
+  <!-- Step 4: LLM -->
+  <g transform="translate(892, 12)">
+    <rect width="195" height="62" rx="4" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="1.5"/>
+    <rect width="195" height="18" rx="4" fill="#6A1B9A"/>
+    <rect y="14" width="195" height="5" fill="#6A1B9A"/>
+    <text x="98" y="13" text-anchor="middle" font-size="10" font-weight="bold" fill="white">4. LLM Reasoning</text>
+    <text x="98" y="32" text-anchor="middle" font-size="9" fill="#1a1a1a">novel / cryptically-named fields</text>
+    <text x="98" y="44" text-anchor="middle" font-size="9" fill="#333">semantic interpretation</text>
+    <text x="98" y="57" text-anchor="middle" font-size="9" font-weight="bold" fill="#1a1a1a">context-aware confidence</text>
+  </g>
+
+  <!-- Arrow to output label -->
+  <line x1="1092" y1="43" x2="1112" y2="43" stroke="#444" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="1144" y="37" text-anchor="middle" font-size="10" font-weight="bold" fill="#1a1a1a">FHIR R5</text>
+  <text x="1144" y="50" text-anchor="middle" font-size="9" fill="#333">Mapping</text>
+
+  <!-- ===== SEPARATOR ===== -->
+  <line x1="30" y1="90" x2="1140" y2="90" stroke="#CFD8DC" stroke-width="0.8"/>
+
+  <!-- ===== MCP SERVER ===== -->
+  <g transform="translate(30, 100)">
+    <rect width="1110" height="322" rx="5" fill="#FAFAFA" stroke="#90A4AE" stroke-width="1.3" stroke-dasharray="6,3"/>
+    <rect width="1110" height="26" rx="5" fill="#78909C"/>
+    <rect y="22" width="1110" height="5" fill="#78909C"/>
+    <text x="555" y="18" text-anchor="middle" font-size="11.5" font-weight="bold" fill="white">MCP Server - 14 Tools for Interactive Use via AI-Assisted Development Environments</text>
+
+    <!-- ROW 1: Matchers | FHIR Exploration | Terminology -->
+    <!-- Matchers -->
+    <g transform="translate(16, 36)">
+      <rect width="360" height="160" rx="4" fill="#F1F8E9" stroke="#7CB342" stroke-width="1.2"/>
+      <text x="180" y="17" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1a1a1a">Matchers (5)</text>
+      <line x1="10" y1="23" x2="350" y2="23" stroke="#AED581" stroke-width="0.8"/>
+      <g transform="translate(10, 29)">
+        <rect width="340" height="22" rx="3" fill="#DCEDC8" stroke="#8BC34A" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">lookup_mapping</text>
+        <text x="334" y="15" text-anchor="end" font-size="9" fill="#333">O(1) flat DB lookup</text>
+      </g>
+      <g transform="translate(10, 54)">
+        <rect width="340" height="22" rx="3" fill="#DCEDC8" stroke="#8BC34A" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">rule_match</text>
+        <text x="334" y="15" text-anchor="end" font-size="9" fill="#333">knowledge base rules</text>
+      </g>
+      <g transform="translate(10, 79)">
+        <rect width="340" height="22" rx="3" fill="#DCEDC8" stroke="#42A5F5" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">biobert_match</text>
+        <text x="334" y="15" text-anchor="end" font-size="9" fill="#333">biomedical embeddings</text>
+      </g>
+      <g transform="translate(10, 104)">
+        <rect width="340" height="22" rx="3" fill="#DCEDC8" stroke="#42A5F5" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">magneto_match</text>
+        <text x="334" y="15" text-anchor="end" font-size="9" fill="#333">schema-aware embeddings</text>
+      </g>
+      <g transform="translate(10, 129)">
+        <rect width="340" height="22" rx="3" fill="#DCEDC8" stroke="#42A5F5" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">find_similar</text>
+        <text x="334" y="15" text-anchor="end" font-size="9" fill="#333">vector store search</text>
+      </g>
+    </g>
+
+    <!-- FHIR Exploration -->
+    <g transform="translate(386, 36)">
+      <rect width="350" height="160" rx="4" fill="#E0F2F1" stroke="#00897B" stroke-width="1.2"/>
+      <text x="175" y="17" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1a1a1a">FHIR Schema Exploration (2)</text>
+      <line x1="10" y1="23" x2="340" y2="23" stroke="#80CBC4" stroke-width="0.8"/>
+      <g transform="translate(10, 29)">
+        <rect width="330" height="22" rx="3" fill="#B2DFDB" stroke="#26A69A" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">search_fhir_fields</text>
+        <text x="324" y="15" text-anchor="end" font-size="9" fill="#333">keyword search across resources</text>
+      </g>
+      <g transform="translate(10, 54)">
+        <rect width="330" height="22" rx="3" fill="#B2DFDB" stroke="#26A69A" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">explore_fhir_resource</text>
+        <text x="324" y="15" text-anchor="end" font-size="9" fill="#333">browse resource structure</text>
+      </g>
+    </g>
+
+    <!-- Terminology -->
+    <g transform="translate(752, 36)">
+      <rect width="342" height="160" rx="4" fill="#FFF8E1" stroke="#F57F17" stroke-width="1.2"/>
+      <text x="178" y="17" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1a1a1a">Terminology Services (3)</text>
+      <line x1="10" y1="23" x2="332" y2="23" stroke="#FFD54F" stroke-width="0.8"/>
+      <g transform="translate(10, 29)">
+        <rect width="322" height="22" rx="3" fill="#FFECB3" stroke="#FFB300" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">search_snomed</text>
+        <text x="316" y="15" text-anchor="end" font-size="9" fill="#333">diagnoses, findings, procedures</text>
+      </g>
+      <g transform="translate(10, 54)">
+        <rect width="322" height="22" rx="3" fill="#FFECB3" stroke="#FFB300" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">search_loinc</text>
+        <text x="316" y="15" text-anchor="end" font-size="9" fill="#333">lab tests, observations</text>
+      </g>
+      <g transform="translate(10, 79)">
+        <rect width="322" height="22" rx="3" fill="#FFECB3" stroke="#FFB300" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">search_ontology</text>
+        <text x="316" y="15" text-anchor="end" font-size="8" fill="#333">EBI = HPO, NCIt, MONDO, UBERON, GO</text>
+      </g>
+    </g>
+
+    <!-- ROW 2: Utilities | Feedback -->
+    <!-- Utilities -->
+    <g transform="translate(16, 202)">
+      <rect width="530" height="80" rx="4" fill="#ECEFF1" stroke="#78909C" stroke-width="1.2"/>
+      <text x="272" y="17" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1a1a1a">Utilities (2)</text>
+      <line x1="10" y1="23" x2="520" y2="23" stroke="#B0BEC5" stroke-width="0.8"/>
+      <g transform="translate(10, 29)">
+        <rect width="510" height="22" rx="3" fill="#CFD8DC" stroke="#90A4AE" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">profile_csv</text>
+        <text x="504" y="15" text-anchor="end" font-size="9" fill="#333">auto-detect use-case, column types, mapping recommendations</text>
+      </g>
+      <g transform="translate(10, 54)">
+        <rect width="510" height="22" rx="3" fill="#CFD8DC" stroke="#90A4AE" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">get_transformation_rules</text>
+        <text x="504" y="15" text-anchor="end" font-size="9" fill="#333">consolidated FHIR path rules from GDC, CDA, HTAN, ICGC</text>
+      </g>
+    </g>
+
+    <!-- Feedback -->
+    <g transform="translate(562, 202)">
+      <rect width="532" height="80" rx="4" fill="#FBE9E7" stroke="#D84315" stroke-width="1.2"/>
+      <text x="274" y="17" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#1a1a1a">Human-in-the-Loop Feedback (2)</text>
+      <line x1="10" y1="23" x2="522" y2="23" stroke="#FFAB91" stroke-width="0.8"/>
+      <g transform="translate(10, 29)">
+        <rect width="512" height="22" rx="3" fill="#FFCCBC" stroke="#E64A19" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">record_feedback</text>
+        <text x="506" y="15" text-anchor="end" font-size="9" fill="#333">accept / reject / correct mappings for learning loop</text>
+      </g>
+      <g transform="translate(10, 54)">
+        <rect width="512" height="22" rx="3" fill="#FFCCBC" stroke="#E64A19" stroke-width="0.8"/>
+        <text x="8" y="15" font-size="10" fill="#1a1a1a" font-weight="bold" font-family="'Courier New', monospace">get_feedback_stats</text>
+        <text x="506" y="15" text-anchor="end" font-size="9" fill="#333">monitoring and analytics for feedback loop</text>
+      </g>
+    </g>
+
+    <!-- Tool count summary -->
+    <text x="555" y="310" text-anchor="middle" font-size="9" fill="#78909C">5 matchers  ·  2 FHIR exploration  ·  3 terminology  ·  2 utilities  ·  2 feedback  =  14 tools</text>
+  </g>
+
+  <!-- ===== LEGEND ===== -->
+  <g transform="translate(30, 446)">
+    <rect x="0" y="-8" width="14" height="9" rx="2" fill="#2E7D32"/>
+    <text x="18" y="0" font-size="9" fill="#1a1a1a">KB / Rules</text>
+    <rect x="95" y="-8" width="14" height="9" rx="2" fill="#E65100"/>
+    <text x="113" y="0" font-size="9" fill="#1a1a1a">Fuzzy</text>
+    <rect x="160" y="-8" width="14" height="9" rx="2" fill="#1565C0"/>
+    <text x="178" y="0" font-size="9" fill="#1a1a1a">Embeddings</text>
+    <rect x="260" y="-8" width="14" height="9" rx="2" fill="#6A1B9A"/>
+    <text x="278" y="0" font-size="9" fill="#1a1a1a">LLM</text>
+    <rect x="315" y="-8" width="14" height="9" rx="2" fill="#F57F17"/>
+    <text x="333" y="0" font-size="9" fill="#1a1a1a">Terminology</text>
+    <rect x="418" y="-8" width="14" height="9" rx="2" fill="#D84315"/>
+    <text x="436" y="0" font-size="9" fill="#1a1a1a">Feedback</text>
+  </g>
+</svg>
