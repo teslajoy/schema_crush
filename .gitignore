@@ -49,6 +49,11 @@ htmlcov/
 *.swo
 *~
 
+# type checkers and linters
+.mypy_cache/
+.ruff_cache/
+.pytype/
+
 # os
 .DS_Store
 Thumbs.db
