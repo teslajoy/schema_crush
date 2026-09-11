@@ -6,7 +6,8 @@ authors:
   - given-names: Nasim
     family-names: Sanati
     email: nasim@plenary.org
-    # orcid: "https://orcid.org/0000-0000-0000-0000"
+    orcid: "https://orcid.org/0000-0001-6681-0418"
+    affiliation: "Biomedical Engineering Department, Knight Cancer Institute, Oregon Health & Science University"
 repository-code: "https://github.com/teslajoy/schema_crush"
 abstract: >-
   Schema Crush is a semantic schema matching framework that aligns heterogeneous
