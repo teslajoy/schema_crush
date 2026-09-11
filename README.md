@@ -11,7 +11,7 @@ built on expert-curated fhir aggregator mappings (gdc, htan) with human-in-the-l
 ![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
-<!-- DOI badge goes here after the first zenodo release -->
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22713617.svg)](https://doi.org/10.5281/zenodo.22713617)
 
 ## data statement
 
@@ -583,11 +583,29 @@ of record and `demo/schema_crush_tutorial.ipynb` is generated from it.
 
 ## citation
 
-if you use schema crush in your work, please cite it. metadata is in
-[CITATION.cff](CITATION.cff), and github renders a "cite this repository"
-button from it.
+if you use schema crush in your work, please cite it:
 
-<!-- replace with the zenodo concept doi after the first release -->
+> Sanati, N. (2026). *Schema Crush: calibrated semantic schema matching for
+> biomedical data to FHIR* (Version 1.2.0) [Computer software].
+> Zenodo. https://doi.org/10.5281/zenodo.22713617
+
+```bibtex
+@software{sanati_schema_crush,
+  author    = {Sanati, Nasim},
+  title     = {Schema Crush: calibrated semantic schema matching for
+               biomedical data to FHIR},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.22713617},
+  url       = {https://github.com/teslajoy/schema_crush}
+}
+```
+
+`10.5281/zenodo.22713617` is the concept doi and always resolves to the latest
+release. to cite this exact version instead, use `10.5281/zenodo.22713618`.
+
+structured metadata lives in [CITATION.cff](CITATION.cff), which github uses to
+render the "cite this repository" button.
 
 ## license
 
