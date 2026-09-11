@@ -1,3 +1,11 @@
+# ---------------------------------------------------------------------------
+# schema_crush .gitignore
+#
+# the published repository ships source, curated mappings, calibrators, docs,
+# and the tutorial. it deliberately excludes patient-level data, bulk
+# downloads, vector stores, and generated reports.
+# ---------------------------------------------------------------------------
+
 # python
 __pycache__/
 *.py[cod]
@@ -22,6 +30,7 @@ wheels/
 
 # virtual environments
 venv/
+venv313/
 env/
 ENV/
 .venv
@@ -32,9 +41,10 @@ ENV/
 htmlcov/
 *.cover
 
-# ide
+# ide / editor
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -43,63 +53,89 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# results and outputs
+# secrets
+.env
+.env.local
+
+# logs, dev work-logs, and generated reports
+*.log
 results/
 examples/reports/
-*.log
+markdown/
+calibrators/*.md
 
-# model caches
+# model and embedding caches
 .cache/
 models/
-
-# jupyter
 .ipynb_checkpoints/
 
-# chromadb
+# vector stores
 vector_store/
 chroma_db/
 
+# ---------------------------------------------------------------------------
+# data
+#
+# patient-level and bulk data never ships. the archive contains schema
+# definitions and expert-curated mappings only.
+# ---------------------------------------------------------------------------
 
-# environment
-.env
-.env.local
-.env.example
+# root-level scratch data (geo downloads, test datasets)
+/data/
 
-# markdown files (keep out of submission for now)
-*.md
-!README.md
-!schema_crush/knowledge/rules/*.md
-markdown/
-
-# calibration logs and pkl files
-calibrators/calibration_logs/
-calibrators/pkl/
-*.pkl
-
-# data files (keep structure with .gitkeep)
-schema_crush/data/db/*
-!schema_crush/data/db/flat_mappings.db
-schema_crush/data/embeddings/
+# project exports (htan/tcga ndjson, patient-level fhir)
 schema_crush/data/examples/projects/
 schema_crush/data/raw_content_maps/
+schema_crush/data/hitl_queue/
 
-# legacy and demo
-legacy/
-demo/
+# embeddings cache (regenerate with scripts/rebuild_and_recalibrate.py)
+schema_crush/data/embeddings/
 
-# test files and legacy examples
+# sqlite: ship the curated flat mapping db, nothing else
+schema_crush/data/db/*
+!schema_crush/data/db/flat_mappings.db
+
+# ---------------------------------------------------------------------------
+# calibrators
+#
+# the packaged calibrators ship so `pip install` yields working calibrated
+# confidence. the working copies under calibrators/ do not.
+# ---------------------------------------------------------------------------
+*.pkl
+!schema_crush/data/calibrators/pkl/*.pkl
+calibrators/calibration_logs/
+
+# calibration summaries: ship the published result tables only
+calibrators/summaries/*
+!calibrators/summaries/calibration_summary.csv
+!calibrators/summaries/embeddings_comparison.csv
+!calibrators/summaries/flat_calibration_results.csv
+!calibrators/summaries/flat_calibration_summary.csv
+
+# ---------------------------------------------------------------------------
+# scripts: maintenance tooling ships, its generated output does not
+# ---------------------------------------------------------------------------
+scripts/audit_output/
+
+# ---------------------------------------------------------------------------
+# demo: tutorial and walkthrough ship. the interactive umap html exports are
+# ~4.6M each and are reproducible via demo/plot_agent_umap.py.
+# ---------------------------------------------------------------------------
+demo/*.html
+demo/schema_crush_poster_V2.pdf
+
+# ---------------------------------------------------------------------------
+# examples: demos ship, ad-hoc tests and legacy experiments do not
+# ---------------------------------------------------------------------------
 examples/test_*.py
 examples/legacy/
 examples/*.png
-# root-level data folder (test datasets, geo downloads)
-/data/
-calibrators/summaries/*.csv
-.claude/
-# docs - only expose architecture_current.md
-docs/*
-!docs/architecture_current.md
-calibrators/summaries/*.csv
-img/architecture.png
-mappings_for_review.csv
 
-scripts/
+# ---------------------------------------------------------------------------
+# misc
+# ---------------------------------------------------------------------------
+legacy/
+img/architecture.png
+img/*.html
+img/*.pptx
+mappings_for_review.csv
