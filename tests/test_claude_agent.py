@@ -22,6 +22,23 @@ def mock_tools():
         yield biobert, magneto, rule
 
 
+@pytest.fixture
+def empty_kb():
+    """knowledge base that returns no hits, forcing the llm path.
+
+    propose_mappings short-circuits before the llm on an exact knowledge base
+    lookup (confidence 1.0) or a fuzzy hit scoring >= 0.30. tests that exercise
+    llm response parsing must bypass those tiers, otherwise they assert against
+    curated mappings rather than the parser under test.
+    """
+    kb = MagicMock()
+    kb.db.lookup.return_value = []
+    kb.fuzzy_lookup.return_value = []
+    kb.find_similar.return_value = []
+    with patch('schema_crush.orchestrator.agents.tools.get_knowledge_base', return_value=kb):
+        yield kb
+
+
 class TestClaudeAgentInitialization:
     """test ClaudeAgent initialization."""
 
@@ -68,7 +85,7 @@ class TestClaudeAgentInitialization:
 class TestClaudeAgentProposeMappings:
     """test ClaudeAgent.propose_mappings()."""
 
-    def test_propose_mappings_returns_proposals(self, mock_anthropic_api):
+    def test_propose_mappings_returns_proposals(self, mock_anthropic_api, empty_kb):
         """test that propose_mappings returns MappingProposal objects."""
         # mock llm response with structured output
         mock_response = MagicMock()
@@ -96,7 +113,7 @@ REASONING: This is a test mapping based on structural patterns.
         assert proposals[0].target_field == "Patient.id"
         assert proposals[0].confidence == 0.85
 
-    def test_propose_mappings_with_tool_calls(self, mock_anthropic_api, mock_tools):
+    def test_propose_mappings_with_tool_calls(self, mock_anthropic_api, empty_kb, mock_tools):
         """test that tool calls are executed and results fed back to llm."""
         biobert, magneto, rule = mock_tools
 
@@ -137,7 +154,7 @@ REASONING: Magneto shows high structural similarity.
         assert proposals[0].confidence == 0.90
         magneto.invoke.assert_called_once()
 
-    def test_propose_mappings_multi_turn_tool_calling(self, mock_anthropic_api, mock_tools):
+    def test_propose_mappings_multi_turn_tool_calling(self, mock_anthropic_api, empty_kb, mock_tools):
         """test multi-turn agentic loop with multiple tool calls."""
         biobert, magneto, rule = mock_tools
 
@@ -177,7 +194,7 @@ REASONING: Magneto shows high structural similarity.
 class TestClaudeAgentResponseParsing:
     """test response parsing logic."""
 
-    def test_parse_structured_response(self, mock_anthropic_api):
+    def test_parse_structured_response(self, mock_anthropic_api, empty_kb):
         """test parsing of structured CHOSEN TARGET/CONFIDENCE/REASONING format."""
         mock_response = MagicMock()
         mock_response.content = """
@@ -206,7 +223,7 @@ similarity and BioBERT shows 0.82 similarity.
         assert proposals[0].confidence == 0.75
         assert "preservation techniques" in proposals[0].reasoning
 
-    def test_parse_markdown_formatting(self, mock_anthropic_api):
+    def test_parse_markdown_formatting(self, mock_anthropic_api, empty_kb):
         """test parsing strips markdown formatting from target."""
         mock_response = MagicMock()
         mock_response.content = """
@@ -230,7 +247,7 @@ REASONING: Test
         # should strip ** asterisks
         assert proposals[0].target_field == "Patient.id"
 
-    def test_parse_fallback_to_content_search(self, mock_anthropic_api):
+    def test_parse_fallback_to_content_search(self, mock_anthropic_api, empty_kb):
         """test fallback parsing when structured format not found."""
         mock_response = MagicMock()
         mock_response.content = "I recommend Patient.id based on the analysis."
@@ -250,7 +267,7 @@ REASONING: Test
         # should find "Patient.id" in content
         assert proposals[0].target_field == "Patient.id"
 
-    def test_parse_final_fallback_to_first_candidate(self, mock_anthropic_api):
+    def test_parse_final_fallback_to_first_candidate(self, mock_anthropic_api, empty_kb):
         """test final fallback uses first candidate when nothing matches."""
         mock_response = MagicMock()
         mock_response.content = "This is ambiguous."
@@ -298,7 +315,7 @@ class TestClaudeAgentExplainDecision:
 class TestClaudeAgentGroundTruthContext:
     """test ground truth handling in context."""
 
-    def test_ground_truth_included_in_prompt(self, mock_anthropic_api):
+    def test_ground_truth_included_in_prompt(self, mock_anthropic_api, empty_kb):
         """test that ground truth is included in llm prompt for validation."""
         mock_response = MagicMock()
         mock_response.content = "CHOSEN TARGET: Patient.id\nCONFIDENCE: 0.9\nREASONING: test"
