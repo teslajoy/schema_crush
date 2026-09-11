@@ -25,12 +25,18 @@ setup(
     long_description_content_type="text/markdown",
     author="Nasim Sanati",
     author_email="nasim@plenary.org",
-    url="https://source.ohsu.edu/Omicstra/schema_crush",
+    url="https://github.com/teslajoy/schema_crush",
+    license="MIT",
+    project_urls={
+        "Source": "https://github.com/teslajoy/schema_crush",
+        "Documentation": "https://github.com/teslajoy/schema_crush/blob/main/docs/schema_crush_overview.md",
+    },
     packages=find_packages(),
     include_package_data=True,
     package_data={
         "schema_crush": [
             "data/resources/*.yaml",
+            "data/resources/*/*.json",
             "data/db/*.db",
             "data/calibrators/pkl/*.pkl",
         ],
@@ -47,6 +53,8 @@ setup(
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        "Topic :: Scientific/Engineering :: Bio-Informatics",
+        "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.13"
     ],
 )

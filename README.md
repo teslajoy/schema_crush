@@ -8,8 +8,19 @@ a modular framework for semantic schema matching that aligns heterogeneous biome
 
 built on expert-curated fhir aggregator mappings (gdc, htan) with human-in-the-loop feedback and guarded calibration.
 
-![Status](https://img.shields.io/badge/Status-Build%20Passing-lgreen)
+![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+<!-- DOI badge goes here after the first zenodo release -->
+
+## data statement
+
+this repository ships source code, expert-curated mapping tables, pre-trained
+calibrators, and documentation. it contains **no patient-level data**. the
+htan, tcga, and geo exports used during development are excluded by
+`.gitignore` and must be obtained from their original sources. see
+[examples/fetch_geo.py](examples/fetch_geo.py) for a reproducible download of
+the public geo datasets.
 
 ## install
 
@@ -553,6 +564,34 @@ python calibrators/calibrate_flat_mappings.py --feedback
 | hitl clustered feedback | not started | group similar matches for bulk review |
 | ontology mining | not started | auto-discover from snomed/loinc |
 | federation | not started | external fhir server validation |
+| context layout refactor | not started | move agent identity, pattern recognition, and transformation rules out of inline python strings in `claude_agent.py` into `knowledge/identity/`, `knowledge/rules/` (split per source: gdc, cda, htan, icgc), and `knowledge/templates/`. lets `mcp/server.py:get_transformation_rules` use directory listing instead of header-splitting a python string |
+| hosted bioscience connectors | not started | this project predates the claude bioscience connectors (chembl, uniprot, and related life-science resources). several bulk downloads and local caches here exist only because those lookups had to be done offline. revisit the ontology and reference-resource paths to query hosted connectors on demand instead of shipping or downloading bulk data |
+
+## documentation
+
+| document | contents |
+|----------|----------|
+| [docs/schema_crush_overview.md](docs/schema_crush_overview.md) | technical overview and abstract, start here |
+| [docs/architecture_current.md](docs/architecture_current.md) | current architecture, entry points, and data flow |
+| [docs/PROMPT_ENGINEERING_ARCHITECTURE.md](docs/PROMPT_ENGINEERING_ARCHITECTURE.md) | multi-agent prompt design |
+| [docs/MAPPING_WORKBENCH.md](docs/MAPPING_WORKBENCH.md) | design proposal for a hitl review ui, not implemented |
+| [demo/schema_crush_tutorial.ipynb](demo/schema_crush_tutorial.ipynb) | executable tutorial with stored outputs |
+| [demo/WALKTHROUGH.md](demo/WALKTHROUGH.md) | 20 to 30 minute technical walkthrough |
+
+the tutorial is jupytext-paired: `demo/schema_crush_tutorial.py` is the source
+of record and `demo/schema_crush_tutorial.ipynb` is generated from it.
+
+## citation
+
+if you use schema crush in your work, please cite it. metadata is in
+[CITATION.cff](CITATION.cff), and github renders a "cite this repository"
+button from it.
+
+<!-- replace with the zenodo concept doi after the first release -->
+
+## license
+
+mit, see [LICENSE](LICENSE).
 
 ## output files (legacy)
 

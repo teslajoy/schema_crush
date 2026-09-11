@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "Schema Crush: calibrated semantic schema matching for biomedical data to FHIR"
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+authors:
+  - given-names: Nasim
+    family-names: Sanati
+    email: nasim@plenary.org
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/teslajoy/schema_crush"
+abstract: >-
+  Schema Crush is a semantic schema matching framework that aligns heterogeneous
+  biomedical data schemas to HL7 FHIR R5. It combines rule-based lookup over
+  expert-curated mappings, embedding-based semantic similarity (BioBERT,
+  Magneto), and isotonic confidence calibration fitted on 1,280 expert mapping
+  rules from FHIR Aggregator sources (GDC, HTAN, CDA). An optional LLM agent
+  layer resolves uncertain cases using the matchers as tools, with
+  human-in-the-loop review and feedback capture. The package also exposes its
+  matchers as an MCP server.
+keywords:
+  - FHIR
+  - schema matching
+  - biomedical data harmonization
+  - ontology mapping
+  - confidence calibration
+  - BioBERT
+  - large language model agents
+  - Model Context Protocol
+license: MIT
+version: 1.2.0
+date-released: "2026-09-11"
