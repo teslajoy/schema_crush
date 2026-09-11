@@ -8,6 +8,8 @@ from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 import mcp.types as types
 
+from schema_crush import __version__
+
 
 # create server instance
 server = Server("schema-crush")
@@ -36,6 +38,14 @@ def get_matcher(name: str):
             _matchers[name] = BioBERTMatcher(use_expert_embeddings=True)
         elif name == "magneto":
             from schema_crush.tools.matchers import MagnetoMatcher
+            if MagnetoMatcher is None:
+                raise RuntimeError(
+                    "MagnetoMatcher is unavailable. magneto is not on pypi and must be "
+                    "installed from source:\n"
+                    "  pip install 'magneto @ git+https://github.com/VIDA-NYU/"
+                    "magneto-matcher.git@main#subdirectory=algorithms/magneto'\n"
+                    "biobert_match and rule_match work without it."
+                )
             _matchers[name] = MagnetoMatcher(use_expert_embeddings=True)
         elif name == "rule":
             from schema_crush.tools.matchers import RuleMatcher
@@ -618,7 +628,7 @@ async def main():
             write_stream,
             InitializationOptions(
                 server_name="schema-crush",
-                server_version="1.2.0",
+                server_version=__version__,
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
@@ -627,5 +637,15 @@ async def main():
         )
 
 
-if __name__ == "__main__":
+def main_sync():
+    """console_script entry point.
+
+    main() is a coroutine, so it cannot be used as a console_script target
+    directly: setuptools would call it and discard the un-awaited coroutine
+    without ever starting the server.
+    """
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    main_sync()

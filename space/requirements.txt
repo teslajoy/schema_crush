@@ -1,0 +1,16 @@
+# hugging face space requirements
+#
+# gradio is pinned below 6.0 deliberately. gradio >= 6 requires
+# huggingface-hub >= 1.16, while transformers 4.x requires huggingface-hub < 1.0.
+# those constraints are mutually exclusive, and schema_crush needs transformers
+# for the biobert embedder. gradio 5.50 accepts huggingface-hub < 2.0 with no
+# floor above 1.0, so it coexists with transformers 4.x.
+gradio[mcp]==5.50.0
+huggingface-hub<1.0
+
+# the package itself, from pypi
+schema-crush==1.2.0
+
+# magneto is not on pypi. without it, magneto_match returns an explanatory
+# error and the other 13 tools work normally. uncomment to enable it:
+# magneto @ git+https://github.com/VIDA-NYU/magneto-matcher.git@main#subdirectory=algorithms/magneto

@@ -144,3 +144,5 @@ img/architecture.png
 img/*.html
 img/*.pptx
 mappings_for_review.csv
+# build artifacts
+dist/

@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "schema-crush"
+dynamic = ["version"]
+description = "Agentic MCP server for mapping heterogeneous biomedical schemas to HL7 FHIR R5, with calibrated matchers and curated knowledge"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Nasim Sanati", email = "nasim@plenary.org" }]
+keywords = [
+    "fhir",
+    "hl7",
+    "schema-matching",
+    "biomedical-data",
+    "data-harmonization",
+    "ontology-mapping",
+    "bioinformatics",
+    "biobert",
+    "mcp",
+    "model-context-protocol",
+    "confidence-calibration",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "langchain[anthropic]",
+    "chromadb",
+    "scikit-learn",
+    "sentence-transformers",
+    "transformers",
+    "torch",
+    "pandas",
+    "numpy",
+    "pyyaml",
+    "pydantic",
+    "python-dotenv",
+    "click",
+    "mcp",
+]
+
+[project.optional-dependencies]
+# magneto is not on pypi and cannot be declared as a direct url dependency of a
+# published package. install it separately to enable magneto_match:
+#   pip install "magneto @ git+https://github.com/VIDA-NYU/magneto-matcher.git@main#subdirectory=algorithms/magneto"
+dev = ["pytest", "ipython"]
+space = ["gradio[mcp]>=5.28"]
+
+[project.urls]
+Homepage = "https://github.com/teslajoy/schema_crush"
+Source = "https://github.com/teslajoy/schema_crush"
+Documentation = "https://github.com/teslajoy/schema_crush/blob/main/docs/schema_crush_overview.md"
+Archive = "https://doi.org/10.5281/zenodo.22713617"
+
+[project.scripts]
+schema-crush-mcp = "schema_crush.mcp.server:main_sync"
+
+[tool.setuptools.dynamic]
+version = { attr = "schema_crush.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["schema_crush*"]
+
+[tool.setuptools.package-data]
+schema_crush = [
+    "data/resources/*.yaml",
+    "data/resources/*/*.json",
+    "data/db/*.db",
+    "data/calibrators/pkl/*.pkl",
+    "knowledge/rules/*.md",
+]
