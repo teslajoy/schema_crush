@@ -1,7 +1,7 @@
 # schema crush
 
 <p align="">
-  <img src="./img/schema_crush.png" alt="mapping" width="150"/>
+  <img src="https://raw.githubusercontent.com/teslajoy/schema_crush/main/img/schema_crush.png" alt="mapping" width="150"/>
 </p>
 
 a modular framework for semantic schema matching that aligns heterogeneous biomedical schemas to fhir standards using calibrated matchers, curated knowledge, and optional llm-assisted review.
@@ -10,7 +10,8 @@ built on expert-curated fhir aggregator mappings (gdc, htan) with human-in-the-l
 
 ![Tests](https://img.shields.io/badge/tests-53%20passing-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/schema-crush.svg)](https://pypi.org/project/schema-crush/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22713617.svg)](https://doi.org/10.5281/zenodo.22713617)
 
 ## data statement
@@ -19,7 +20,7 @@ this repository ships source code, expert-curated mapping tables, pre-trained
 calibrators, and documentation. it contains **no patient-level data**. the
 htan, tcga, and geo exports used during development are excluded by
 `.gitignore` and must be obtained from their original sources. see
-[examples/fetch_geo.py](examples/fetch_geo.py) for a reproducible download of
+[examples/fetch_geo.py](https://github.com/teslajoy/schema_crush/blob/main/examples/fetch_geo.py) for a reproducible download of
 the public geo datasets.
 
 ## install
@@ -571,12 +572,12 @@ python calibrators/calibrate_flat_mappings.py --feedback
 
 | document | contents |
 |----------|----------|
-| [docs/schema_crush_overview.md](docs/schema_crush_overview.md) | technical overview and abstract, start here |
-| [docs/architecture_current.md](docs/architecture_current.md) | current architecture, entry points, and data flow |
-| [docs/PROMPT_ENGINEERING_ARCHITECTURE.md](docs/PROMPT_ENGINEERING_ARCHITECTURE.md) | multi-agent prompt design |
-| [docs/MAPPING_WORKBENCH.md](docs/MAPPING_WORKBENCH.md) | design proposal for a hitl review ui, not implemented |
-| [demo/schema_crush_tutorial.ipynb](demo/schema_crush_tutorial.ipynb) | executable tutorial with stored outputs |
-| [demo/WALKTHROUGH.md](demo/WALKTHROUGH.md) | 20 to 30 minute technical walkthrough |
+| [docs/schema_crush_overview.md](https://github.com/teslajoy/schema_crush/blob/main/docs/schema_crush_overview.md) | technical overview and abstract, start here |
+| [docs/architecture_current.md](https://github.com/teslajoy/schema_crush/blob/main/docs/architecture_current.md) | current architecture, entry points, and data flow |
+| [docs/PROMPT_ENGINEERING_ARCHITECTURE.md](https://github.com/teslajoy/schema_crush/blob/main/docs/PROMPT_ENGINEERING_ARCHITECTURE.md) | multi-agent prompt design |
+| [docs/MAPPING_WORKBENCH.md](https://github.com/teslajoy/schema_crush/blob/main/docs/MAPPING_WORKBENCH.md) | design proposal for a hitl review ui, not implemented |
+| [demo/schema_crush_tutorial.ipynb](https://github.com/teslajoy/schema_crush/blob/main/demo/schema_crush_tutorial.ipynb) | executable tutorial with stored outputs |
+| [demo/WALKTHROUGH.md](https://github.com/teslajoy/schema_crush/blob/main/demo/WALKTHROUGH.md) | 20 to 30 minute technical walkthrough |
 
 the tutorial is jupytext-paired: `demo/schema_crush_tutorial.py` is the source
 of record and `demo/schema_crush_tutorial.ipynb` is generated from it.
@@ -604,12 +605,12 @@ if you use schema crush in your work, please cite it:
 `10.5281/zenodo.22713617` is the concept doi and always resolves to the latest
 release. to cite this exact version instead, use `10.5281/zenodo.22713618`.
 
-structured metadata lives in [CITATION.cff](CITATION.cff), which github uses to
+structured metadata lives in [CITATION.cff](https://github.com/teslajoy/schema_crush/blob/main/CITATION.cff), which github uses to
 render the "cite this repository" button.
 
 ## license
 
-mit, see [LICENSE](LICENSE).
+mit, see [LICENSE](https://github.com/teslajoy/schema_crush/blob/main/LICENSE).
 
 ## output files (legacy)
 
