@@ -56,6 +56,195 @@ def _split(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# mapping cascade
+#
+# quality comes from the ordering, not from any single matcher. curated
+# knowledge answers most real columns exactly; embeddings are a last resort
+# because raw similarity between short field names barely separates correct
+# from incorrect targets.
+# ---------------------------------------------------------------------------
+
+FUZZY_ACCEPT = 0.30   # matches the threshold ClaudeAgent uses before the llm
+
+# calibrated scores estimate empirical accuracy, so this floor reads directly:
+# below it, the suggestion is worse than a coin flip and is reported as
+# unmapped rather than dressed up as a mapping. biobert on bare field names
+# routinely lands near 0.06, and at that level it returns the SAME target for
+# unrelated columns, so a low floor manufactures confident-looking noise.
+EMBED_ACCEPT = 0.50
+
+
+def _candidate_targets(kb, limit: int = 400) -> list[str]:
+    """distinct fhir destinations in the knowledge base, as embedding candidates."""
+    global _CANDIDATES
+    if _CANDIDATES is None:
+        try:
+            conn = kb.db.conn if hasattr(kb.db, "conn") else None
+            if conn is None:
+                import sqlite3
+                from schema_crush import get_package_path
+                conn = sqlite3.connect(get_package_path("data/db/flat_mappings.db"))
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT destination, COUNT(*) n FROM destinations "
+                "WHERE destination LIKE '%.%' GROUP BY destination ORDER BY n DESC LIMIT ?",
+                (limit,),
+            )
+            _CANDIDATES = [r[0] for r in cur.fetchall()]
+        except Exception:
+            _CANDIDATES = []
+    return _CANDIDATES
+
+
+_CANDIDATES = None
+
+
+def _map_one(kb, column: str, samples: list) -> dict:
+    """map a single column through the cascade, returning the first stage that answers."""
+    base = {"source": column, "target": None, "confidence": 0.0,
+            "stage": "unmapped", "note": ""}
+
+    # stage 1: exact curated lookup
+    try:
+        hits = kb.lookup(column)
+    except Exception:
+        hits = []
+    if hits:
+        _, dest = hits[0]
+        alts = sorted({d.destination for _, d in hits})
+        return {**base, "target": dest.destination, "confidence": 1.0,
+                "stage": "knowledge_base",
+                "note": "exact curated mapping"
+                        + (f"; {len(alts)} distinct targets for this term" if len(alts) > 1 else "")}
+
+    # stage 2: fuzzy over curated field names
+    try:
+        fuzzy = kb.fuzzy_lookup(column, limit=5)
+    except Exception:
+        fuzzy = []
+    # prefer an actual field path over a bare resource name: "Observation" alone
+    # is not a mapping anyone can act on, "Observation.valueQuantity" is.
+    usable = [f for f in fuzzy
+              if f.get("score", 0) >= FUZZY_ACCEPT and "." in str(f.get("target", ""))]
+    if usable:
+        best = usable[0]
+        return {**base, "target": best.get("target"),
+                "confidence": round(float(best.get("score", 0)), 3),
+                "stage": "fuzzy",
+                "note": f"name similar to curated term '{best.get('source')}'; "
+                        "score is string similarity, not calibrated accuracy"}
+
+    # stage 3: calibrated embedding similarity
+    try:
+        from schema_crush.tools.matchers import BioBERTMatcher
+        global _EMBEDDER
+        if _EMBEDDER is None:
+            _EMBEDDER = BioBERTMatcher(use_expert_embeddings=True)
+        cands = _candidate_targets(kb)
+        if cands:
+            scored = _EMBEDDER.match(column, cands)
+            if scored:
+                tgt, raw = scored[0]
+                cal = kb.calibrate("biobert", float(raw), "field")
+                if cal >= EMBED_ACCEPT:
+                    return {**base, "target": tgt, "confidence": round(float(cal), 3),
+                            "stage": "embedding",
+                            "note": "calibrated biobert; review before use"}
+                return {**base, "stage": "unmapped",
+                        "note": f"best embedding guess {tgt} calibrated to {cal:.3f}, "
+                                "below the accuracy floor"}
+    except Exception as exc:
+        return {**base, "stage": "unmapped", "note": f"embedding stage failed: {exc}"}
+
+    return {**base, "note": "no curated, fuzzy, or embedding match; needs human review"}
+
+
+_EMBEDDER = None
+
+
+def map_uploaded_csv(file_obj, max_rows_scanned: int = 200):
+    """read an uploaded csv, map every column, return (table, json, summary).
+
+    only the header row and a few sample values are read. no row data is stored
+    or logged.
+    """
+    empty = [], "", ""
+    if file_obj is None:
+        return [], "", "upload a csv to begin."
+
+    import csv as _csv
+    path = file_obj if isinstance(file_obj, str) else getattr(file_obj, "name", None)
+    if not path:
+        return [], "", "could not read the uploaded file."
+
+    try:
+        with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
+            reader = _csv.reader(fh)
+            try:
+                headers = next(reader)
+            except StopIteration:
+                return [], "", "that csv appears to be empty."
+            headers = [h.strip() for h in headers if h and h.strip()]
+            if not headers:
+                return [], "", "no column headers found in that csv."
+            samples = {h: [] for h in headers}
+            for i, row in enumerate(reader):
+                if i >= max_rows_scanned:
+                    break
+                for j, val in enumerate(row):
+                    if j < len(headers) and val and len(samples[headers[j]]) < 3:
+                        samples[headers[j]].append(val.strip()[:60])
+    except Exception as exc:
+        return [], "", f"could not parse that csv: {exc}"
+
+    rows = _map_columns(headers, samples)
+
+    table = [[
+        r["source"],
+        r.get("sample_values", ""),
+        r["target"] or "—",
+        f"{r['confidence']:.3f}" if r["confidence"] else "—",
+        r["stage"],
+        r["note"],
+    ] for r in rows]
+
+    by_stage: dict = {}
+    for r in rows:
+        by_stage[r["stage"]] = by_stage.get(r["stage"], 0) + 1
+    mapped = sum(1 for r in rows if r["target"])
+    pct = (100 * mapped / len(rows)) if rows else 0
+    summary = (
+        f"**{mapped} of {len(rows)} columns mapped ({pct:.0f}%)**  ·  "
+        + "  ·  ".join(f"{k}: {v}" for k, v in sorted(by_stage.items()))
+        + "\n\nColumns marked `unmapped` had no curated match and scored below the "
+        "calibrated accuracy floor. They are left blank on purpose rather than "
+        "filled with a low-confidence guess."
+    )
+
+    payload = json.dumps(
+        {"columns": len(rows), "mapped": mapped, "coverage_by_stage": by_stage,
+         "mappings": rows},
+        indent=2, default=str,
+    )
+    return table, payload, summary
+
+
+def _map_columns(columns: list[str], samples: dict | None = None) -> list[dict]:
+    """run the cascade over every column."""
+    from schema_crush.orchestrator.agents.tools import get_knowledge_base
+    kb = get_knowledge_base()
+    samples = samples or {}
+    out = []
+    for col in columns:
+        row = _map_one(kb, col, samples.get(col, []))
+        vals = samples.get(col, [])
+        if vals:
+            row["sample_values"] = ", ".join(str(v) for v in vals[:3])
+        out.append(row)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # matcher tools
 # ---------------------------------------------------------------------------
 
@@ -336,6 +525,54 @@ def profile_csv(columns: str, sample_data: str = "", use_llm: bool = False) -> s
 
 
 @gr.mcp.tool()
+def map_csv_columns(columns: str, sample_values: str = "") -> str:
+    """Map a whole set of CSV column names to FHIR R5 paths in one call.
+
+    Runs the full matching cascade per column and stops at the first stage that
+    answers, which is what makes the result good:
+
+      1. knowledge base exact lookup, confidence 1.0
+      2. fuzzy match over curated field names
+      3. calibrated BioBERT embedding similarity
+      4. unmapped, flagged for human review
+
+    Prefer this over calling biobert_match yourself. A single matcher used alone
+    performs badly on field names: raw embedding scores for unrelated FHIR paths
+    cluster within a few points of each other, so the wrong target often ranks
+    first. The cascade avoids that by trying curated knowledge first, which
+    resolves the large majority of real-world columns exactly.
+
+    Uses no LLM and needs no API key.
+
+    Args:
+        columns: Column names, comma or newline separated.
+        sample_values: Optional JSON object mapping column name to a list of
+            example values, for example {"grade": ["G1", "G2"]}. Improves
+            content-tier hints.
+
+    Returns:
+        JSON list of {source, target, confidence, stage, note}, one per column,
+        plus a summary of coverage by stage.
+    """
+    cols = _split(columns)
+    if not cols:
+        return json.dumps({"error": "no column names provided"}, indent=2)
+
+    samples: dict = {}
+    if sample_values:
+        try:
+            samples = json.loads(sample_values)
+        except json.JSONDecodeError as exc:
+            return json.dumps({"error": f"sample_values is not valid JSON: {exc}"}, indent=2)
+
+    rows = _map_columns(cols, samples)
+    summary: dict = {}
+    for r in rows:
+        summary[r["stage"]] = summary.get(r["stage"], 0) + 1
+    return json.dumps({"mappings": rows, "coverage_by_stage": summary}, indent=2, default=str)
+
+
+@gr.mcp.tool()
 def get_feedback_stats() -> str:
     """Get statistics on collected human-in-the-loop feedback.
 
@@ -425,6 +662,57 @@ with gr.Blocks(title="schema crush", theme=gr.themes.Soft()) as demo:
     gr.Markdown(INTRO)
 
     with gr.Tabs():
+        with gr.Tab("map a csv"):
+            gr.Markdown(
+                "**Upload a CSV and get FHIR R5 mappings for every column.**\n\n"
+                "Only the header row and up to three example values per column are "
+                "read. Row data is never stored or logged. Do not upload PHI.\n\n"
+                "Each column runs through the cascade and stops at the first stage "
+                "that answers: curated knowledge base, then fuzzy name match, then "
+                "calibrated embeddings. Columns that no stage can answer are left "
+                "blank rather than filled with a guess."
+            )
+            csv_in = gr.File(label="csv file", file_types=[".csv", ".tsv", ".txt"])
+            map_btn = gr.Button("map columns", variant="primary")
+            csv_summary = gr.Markdown()
+            csv_table = gr.Dataframe(
+                headers=["column", "sample values", "FHIR target", "confidence", "stage", "note"],
+                datatype=["str"] * 6,
+                wrap=True,
+                label="mappings",
+            )
+            csv_json = gr.Code(label="json", language="json")
+            map_btn.click(
+                map_uploaded_csv,
+                inputs=csv_in,
+                outputs=[csv_table, csv_json, csv_summary],
+            )
+            gr.Markdown(
+                "---\n**No file handy?** Paste column names instead. This is also the "
+                "`map_csv_columns` tool that an MCP client calls."
+            )
+            paste_cols = gr.Textbox(
+                label="column names (comma or newline separated)",
+                value="sample_id, tumor_subtype, survival_months, gender, primary_diagnosis",
+            )
+            paste_samples = gr.Textbox(
+                label="sample values (optional JSON object)",
+                value='{"tumor_subtype": ["basal", "classical"]}',
+            )
+            paste_out = gr.Code(label="json", language="json")
+            gr.Button("map these columns").click(
+                map_csv_columns, [paste_cols, paste_samples], paste_out
+            )
+
+            gr.Markdown(
+                "---\n"
+                "**Want the cryptic columns resolved too?** Names like "
+                "`death_event_1death_0censor` need a model to interpret them. "
+                "Connect this Space to Claude Desktop as an MCP server and your own "
+                "Claude does that reasoning, using these 14 tools. See the About "
+                "section below for the config."
+            )
+
         with gr.Tab("lookup"):
             gr.Markdown("*Look up every curated mapping for a source term. Start here.*")
             lu_term = gr.Textbox(label="source term", value="primary_diagnosis")
