@@ -46,7 +46,7 @@ class TestClaudeAgentInitialization:
         """test initialization with default parameters."""
         agent = ClaudeAgent()
 
-        assert agent.model == "claude-sonnet-4-20250514"
+        assert agent.model == "claude-opus-4-6"
         assert agent.task == "field"
         assert agent.name == "claude_agent_field"
         mock_anthropic_api.assert_called_once()

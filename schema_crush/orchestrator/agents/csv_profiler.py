@@ -192,7 +192,7 @@ class CSVProfiler:
         "research_study": ["participant", "subject", "cohort", "arm"]
     }
 
-    def __init__(self, use_llm: bool = True, llm_model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, use_llm: bool = True, llm_model: str = "claude-opus-4-6"):
         """initialize profiler.
 
         args:

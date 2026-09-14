@@ -509,7 +509,7 @@ class ClaudeAgent(AutonomousAgent):
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-opus-4-6",
         api_key: Optional[str] = None,
         task: str = "field",
         warmup: bool = True
