@@ -418,6 +418,9 @@ Research use only. Not for clinical decision-making.
 """
 
 
+# theme belongs in Blocks() on gradio 5.x. gradio 6 moves it to launch(), which
+# is what the DeprecationWarning in the space logs is announcing; launch() does
+# not accept it yet on 5.50, so passing it there raises TypeError.
 with gr.Blocks(title="schema crush", theme=gr.themes.Soft()) as demo:
     gr.Markdown(INTRO)
 
@@ -562,4 +565,7 @@ with gr.Blocks(title="schema crush", theme=gr.themes.Soft()) as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(mcp_server=True)
+    # ssr_mode=False: gradio 5's server-side rendering runs a node sidecar that
+    # adds a failure mode and buys nothing here, since every view is rendered
+    # from a tool call rather than prefetched.
+    demo.launch(mcp_server=True, ssr_mode=False)
