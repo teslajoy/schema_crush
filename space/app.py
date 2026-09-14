@@ -64,7 +64,15 @@ def _split(text: str) -> list[str]:
 # from incorrect targets.
 # ---------------------------------------------------------------------------
 
-FUZZY_ACCEPT = 0.30   # matches the threshold ClaudeAgent uses before the llm
+# fuzzy_lookup scores single-token overlap as 0.6 * overlap / max(tokens), so one
+# shared token out of two lands on exactly 0.30 - and its own filter is
+# `if score < 0.3: continue`, so the weakest possible match passes by a hair.
+# That is how PatientNum -> Group.identifier and OS_days -> Patient.birthDate got
+# emitted, both at a confident-looking 0.300.
+#
+# 0.55 admits only near-complete matches: exact (1.0), substring, stem (0.65-0.70),
+# and full token overlap (0.60). Partial-token noise is excluded.
+FUZZY_ACCEPT = 0.55
 
 # calibrated scores estimate empirical accuracy, so this floor reads directly:
 # below it, the suggestion is worse than a coin flip and is reported as
@@ -160,6 +168,84 @@ def _map_one(kb, column: str, samples: list) -> dict:
 
 
 _EMBEDDER = None
+
+
+def map_with_agent(file_obj, api_key: str, pasted_columns: str = "", max_cols: int = 40):
+    """map columns with ClaudeAgent, using a key the visitor supplies.
+
+    the key is used for this request only: it is passed to the agent, never
+    written to disk, never logged, and never kept in module state.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return [], "", "Paste an Anthropic API key to run the agent. It is used for this request only."
+    if not key.startswith("sk-ant-"):
+        return [], "", "That does not look like an Anthropic API key (they start with `sk-ant-`)."
+
+    headers, samples = [], {}
+    if file_obj is not None:
+        import csv as _csv
+        path = file_obj if isinstance(file_obj, str) else getattr(file_obj, "name", None)
+        try:
+            with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
+                reader = _csv.reader(fh)
+                headers = [h.strip() for h in next(reader) if h and h.strip()]
+                samples = {h: [] for h in headers}
+                for i, row in enumerate(reader):
+                    if i >= 200:
+                        break
+                    for j, val in enumerate(row):
+                        if j < len(headers) and val and len(samples[headers[j]]) < 3:
+                            samples[headers[j]].append(val.strip()[:60])
+        except Exception as exc:
+            return [], "", f"could not parse that csv: {exc}"
+    else:
+        headers = _split(pasted_columns)
+
+    if not headers:
+        return [], "", "Upload a csv or paste column names."
+    if len(headers) > max_cols:
+        return [], "", f"That csv has {len(headers)} columns; this demo maps at most {max_cols}."
+
+    try:
+        from schema_crush.orchestrator.agents import ClaudeAgent
+        agent = ClaudeAgent(task="field", api_key=key)
+    except Exception as exc:
+        return [], "", f"could not start the agent: {type(exc).__name__}: {exc}"
+
+    rows = []
+    for col in headers:
+        try:
+            proposals = agent.propose_mappings(
+                col,
+                candidate_targets=None,
+                context={"sample_values": samples.get(col, [])},
+            )
+            if proposals:
+                p = proposals[0]
+                rows.append({
+                    "source": col,
+                    "sample_values": ", ".join(samples.get(col, [])[:3]),
+                    "target": p.target_field,
+                    "confidence": round(float(p.confidence), 3),
+                    "reasoning": (p.reasoning or "")[:300],
+                })
+            else:
+                rows.append({"source": col, "sample_values": "", "target": None,
+                             "confidence": 0.0, "reasoning": "no proposal"})
+        except Exception as exc:
+            rows.append({"source": col, "sample_values": "", "target": None,
+                         "confidence": 0.0, "reasoning": f"{type(exc).__name__}: {exc}"})
+
+    del agent, key
+
+    table = [[r["source"], r["sample_values"], r["target"] or "—",
+              f"{r['confidence']:.3f}" if r["confidence"] else "—", r["reasoning"]]
+             for r in rows]
+    mapped = sum(1 for r in rows if r["target"])
+    summary = (f"**{mapped} of {len(rows)} columns mapped ({100*mapped/len(rows):.0f}%)** "
+               "by the agent. Key discarded.")
+    return table, json.dumps(rows, indent=2, default=str), summary
 
 
 def map_uploaded_csv(file_obj, max_rows_scanned: int = 200):
@@ -711,6 +797,47 @@ with gr.Blocks(title="schema crush", theme=gr.themes.Soft()) as demo:
                 "Connect this Space to Claude Desktop as an MCP server and your own "
                 "Claude does that reasoning, using these 14 tools. See the About "
                 "section below for the config."
+            )
+
+        with gr.Tab("map with agent"):
+            gr.Markdown(
+                "**The full pipeline, including the reasoning stage.**\n\n"
+                "The free tab above answers from curated knowledge only, so columns "
+                "it has never seen come back blank. This tab runs the agent over the "
+                "same 14 tools, which is what resolves names like `OS_days`, "
+                "`CA19_9_UperML`, or `death_event_1death_0censor`.\n\n"
+                "It needs an Anthropic API key, which **you** supply. The key is used "
+                "for this request only: never written to disk, never logged, never "
+                "kept after the response. If you would rather not paste a key, connect "
+                "this Space to Claude Desktop instead and your own Claude does the "
+                "same reasoning (config in the About section)."
+            )
+            ag_key = gr.Textbox(
+                label="your Anthropic API key (sk-ant-…)",
+                type="password",
+                placeholder="sk-ant-…",
+            )
+            ag_file = gr.File(label="csv file", file_types=[".csv", ".tsv", ".txt"])
+            ag_cols = gr.Textbox(
+                label="or paste column names",
+                placeholder="OS_days, CA19_9_UperML, NeoadjuvantYN",
+            )
+            ag_btn = gr.Button("map with agent", variant="primary")
+            ag_summary = gr.Markdown()
+            ag_table = gr.Dataframe(
+                headers=["column", "sample values", "FHIR target", "confidence", "reasoning"],
+                datatype=["str"] * 5,
+                wrap=True,
+                label="agent mappings",
+            )
+            ag_json = gr.Code(label="json", language="json")
+            # show_api=False keeps this out of the MCP schema: an mcp tool that
+            # takes an api key would invite clients to pass one over the wire.
+            ag_btn.click(
+                map_with_agent,
+                inputs=[ag_file, ag_key, ag_cols],
+                outputs=[ag_table, ag_json, ag_summary],
+                show_api=False,
             )
 
         with gr.Tab("lookup"):
