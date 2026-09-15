@@ -69,12 +69,49 @@ def run_cascade(entries):
     return out
 
 
+def _cache_stats(agent):
+    """pull prompt-cache counters off the last response, if the sdk exposes them.
+
+    the ~8,300-token system prompt is identical for every column, so after the
+    first call it should be served from cache. if cache_read stays at zero
+    across a run, something is invalidating the prefix and the run is costing
+    full price.
+    """
+    meta = getattr(agent, "_last_usage", None)
+    if not meta:
+        return None
+    det = meta.get("input_token_details") or {}
+    return {"cache_read": det.get("cache_read", 0),
+            "cache_creation": det.get("cache_creation", 0),
+            "input": meta.get("input_tokens", 0),
+            "output": meta.get("output_tokens", 0)}
+
+
 def run_agent(entries, model=None):
     from schema_crush.orchestrator.agents import ClaudeAgent
     kwargs = {"task": "field"}
     if model:
         kwargs["model"] = model
     agent = ClaudeAgent(**kwargs)
+
+    # wrap invoke so we can read usage without touching agent internals
+    _orig = agent.llm.invoke
+    totals = {"cache_read": 0, "cache_creation": 0, "input": 0, "output": 0, "calls": 0}
+
+    def _tracking_invoke(*a, **kw):
+        resp = _orig(*a, **kw)
+        um = getattr(resp, "usage_metadata", None) or {}
+        det = um.get("input_token_details") or {}
+        totals["calls"] += 1
+        totals["input"] += um.get("input_tokens", 0) or 0
+        totals["output"] += um.get("output_tokens", 0) or 0
+        totals["cache_read"] += det.get("cache_read", 0) or 0
+        totals["cache_creation"] += det.get("cache_creation", 0) or 0
+        return resp
+
+    agent.llm.invoke = _tracking_invoke
+    agent._eval_usage = totals
+
     out = []
     for e in entries:
         try:
@@ -88,6 +125,24 @@ def run_agent(entries, model=None):
             pred, conf, reason = None, 0.0, f"{type(exc).__name__}: {exc}"
         out.append({**e, "predicted": pred, "confidence": conf, "stage": "agent",
                     "reasoning": reason, "verdict": score_one(pred, e["accept"])})
+
+    u = totals
+    if u["calls"]:
+        billed = u["input"] + u["cache_creation"] + u["cache_read"]
+        hit = 100 * u["cache_read"] / billed if billed else 0
+        print(f"\ntokens over {u['calls']} llm calls: "
+              f"{u['input']:,} uncached in, {u['cache_creation']:,} cache write, "
+              f"{u['cache_read']:,} cache read, {u['output']:,} out")
+        print(f"prompt cache hit rate: {hit:.0f}% of input tokens")
+        if u["cache_read"] == 0 and u["calls"] > 1:
+            print("  WARNING: zero cache reads across multiple calls - the prefix "
+                  "is being invalidated and this run paid full price.")
+        # opus 4.6 rates: $5/MTok in, $25/MTok out; writes 1.25x, reads 0.1x
+        cost = (u["input"] * 5 + u["cache_creation"] * 6.25
+                + u["cache_read"] * 0.5 + u["output"] * 25) / 1e6
+        uncached = ((u["input"] + u["cache_creation"] + u["cache_read"]) * 5
+                    + u["output"] * 25) / 1e6
+        print(f"approx cost ${cost:.2f} (without caching: ${uncached:.2f})")
     return out
 
 

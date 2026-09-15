@@ -826,8 +826,22 @@ REASONING: [detailed explanation including what you discovered and why]
             user_message += f"\n\nground truth (for validation): {context['ground_truth']}"
 
         # invoke llm with tools (first call)
+        #
+        # the system prompt is ~8,300 tokens (identity, pattern recognition,
+        # skeptic mindset, task template, transformation rules, fhir template
+        # rules) and is byte-identical for every column mapped. sending it as a
+        # cache_control block means it is written once and read at a fraction of
+        # the cost on every later call, including each turn of the tool loop.
+        #
+        # caching is a prefix match, so the block must stay stable: keep all
+        # per-column content in the human message below, never interpolate a
+        # timestamp or field name into the system prompt.
         messages = [
-            SystemMessage(content=self.system_prompt),
+            SystemMessage(content=[{
+                "type": "text",
+                "text": self.system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }]),
             HumanMessage(content=user_message)
         ]
 
