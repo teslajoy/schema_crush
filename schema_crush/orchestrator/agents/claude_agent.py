@@ -980,7 +980,10 @@ REASONING: [detailed explanation including what you discovered and why]
         if target_match:
             chosen_target = target_match.group(1).strip()
             # remove markdown formatting
-            chosen_target = chosen_target.strip('*').strip()
+            # strip markdown the model may wrap around the path: **bold**, `code`,
+            # or quotes. an unstripped `Procedure.occurrenceDateTime` was stored
+            # with its backticks and scored as a wrong answer despite being right.
+            chosen_target = chosen_target.strip().strip('*`"\'').strip()
 
         # try to extract CONFIDENCE
         conf_match = re.search(r'CONFIDENCE:\s*([\d.]+)', content, re.IGNORECASE)

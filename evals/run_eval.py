@@ -165,7 +165,10 @@ def run_agent(entries, model=None):
         uncached = ((u["input"] + u["cache_creation"] + u["cache_read"]) * 5
                     + u["output"] * 25) / 1e6
         print(f"approx cost ${cost:.2f} (without caching: ${uncached:.2f})")
-    return out
+        u["hit_rate_pct"] = round(hit, 1)
+        u["approx_cost_usd"] = round(cost, 4)
+        u["approx_cost_uncached_usd"] = round(uncached, 4)
+    return out, u
 
 
 def report(name, results):
@@ -222,8 +225,10 @@ def main():
         if not os.getenv("ANTHROPIC_API_KEY"):
             print("\nANTHROPIC_API_KEY is not set; skipping the agent run.")
         else:
-            ag = run_agent(entries, args.model)
-            payload["agent"] = {"results": ag, "totals": report("AGENT", ag)}
+            ag, usage = run_agent(entries, args.model)
+            # usage is saved, not just printed: a closed terminal lost it once
+            payload["agent"] = {"results": ag, "totals": report("AGENT", ag),
+                                "usage": usage}
 
     if args.out:
         Path(args.out).write_text(json.dumps(payload, indent=2, default=str))
