@@ -433,6 +433,59 @@ This architecture follows the transformer pattern where staging components are h
 
 ---
 
+### Column Archetypes (apply when no curated mapping exists)
+
+A source column does not always map to a field path. It may instead determine
+whether a resource EXISTS, what its status is, what unit its value carries, or
+which resource everything else references. Classify the column by its archetype
+first, then emit. These generalize: match on the signature, not the exact name.
+
+**A. Boolean flag → conditional resource + status.** Never map a flag to a
+plain value field, and never treat "no" as absence.
+| Signature | Name ends `YN`/`_yn`/`_flag`/`Is*`/`Has*`, or values are Y/N, yes/no, true/false, 0/1 |
+| Resource | From the flag's SUBJECT: therapy → MedicationAdministration, diagnosis/recurrence → Condition, procedure → Procedure |
+| yes | status `completed` (MedicationAdministration) / verificationStatus `confirmed` (Condition) |
+| no | status `not-done` / verificationStatus `refuted` — emit the resource, it records a known negative |
+| blank/unknown | emit nothing — absent data is not a negative |
+| Required fields | fill from the Default Unknown Code pattern; take `subject` from the row's identifier column |
+Examples: `NeoadjuvantYN`, `AdjuvantYN`, `RadiationYN`, `ChemoYN`,
+`PriorMalignancy`, `treatment_or_therapy`. A "yes" typically yields TWO
+resources: the event plus the thing it references (MedicationAdministration +
+Medication), because `medication` is required and the column does not name a drug.
+
+**B. Event date → resource existence + timing.**
+| Signature | Date-typed column naming an event (`DateOf*`, `*_date`, `days_to_*`) |
+| Present | emit the event resource, date → `occurrence*` / `onset*` / `effective*` |
+| Absent | emit nothing |
+Examples: `DateOfRecurrence`, `DateOfBx`, `days_to_death`.
+
+**C. Unit-bearing numeric → Quantity.** The unit is usually in the NAME.
+| Signature | Numeric values, name carries a unit suffix (`_kgm2`, `_UperML`, `_days`, `_mm`, `_cm`, `_pct`) |
+| Emit | `Observation.valueQuantity` with `value`, `unit`, and UCUM `code` parsed from the suffix |
+Examples: `BMI_kgm2` → kg/m2, `CA19_9_UperML` → U/mL, `OS_days` → d.
+Never map these to `valueString`; the unit is data, not decoration.
+
+**D. Small repeated vocabulary → CodeableConcept.**
+| Signature | Few distinct string values repeating across rows |
+| Emit | `Observation.valueCodeableConcept`; resolve the code via lookup_mapping content tier, then search_snomed / search_loinc |
+Examples: `GradeDiff` ("moderately differentiated"), `SmokingHx`, `stage_group`.
+
+**E. Paired columns → ONE resource.** Do not emit one resource per column.
+| Signature | A time column plus an event column, or a T/N/M triple |
+| Emit | survival time + death event → `Patient.deceasedDateTime`/`deceasedBoolean`; T/N/M → one `Condition.stage` with components |
+Examples: `survival_months` + `death_event_1death_0censor`, `t_stage`/`n_stage`/`m_stage`.
+
+**F. Identifier → identity AND reference anchor.**
+| Signature | `*_id`, `*Num`, `submitter_*`, accession-like values |
+| Emit | `<Resource>.identifier`, and use it as the `subject`/`focus` reference for every other column in the row |
+Do not map an identifier to a generic value field.
+
+**Precedence:** curated mapping (lookup_mapping) always wins. Use an archetype
+only when no curated mapping exists. When two archetypes could apply, sample
+values decide: inspect the values before choosing.
+
+---
+
 ### Medication & Substance (Drug Details)
 | Field | FHIR Path |
 |-------|-----------|

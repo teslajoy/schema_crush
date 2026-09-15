@@ -566,6 +566,8 @@ async def _execute_tool(name: str, args: dict) -> Any:
             "medication": "### MedicationAdministration",
             "codes": "### Key Code Systems",
             "entities": "### Entity → Resource Mapping",
+            "archetypes": "### Column Archetypes",
+            "patterns": "### Column Archetypes",
         }
 
         if section == "all":
