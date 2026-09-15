@@ -690,10 +690,34 @@ class ClaudeAgent(AutonomousAgent):
         fuzzy_results = []
         for term in search_terms:
             fuzzy_results.extend(kb.fuzzy_lookup(term, limit=5))
+        # each fuzzy_lookup returns sorted results, but concatenating sorted
+        # lists is not sorted: without this, a stemmed variant that matched
+        # better than the original term was silently ignored.
+        fuzzy_results.sort(key=lambda r: -r["score"])
 
-        # if good fuzzy match found, use it (threshold 0.30 to catch token matches)
-        if fuzzy_results and fuzzy_results[0]["score"] >= 0.30:
-            best = fuzzy_results[0]
+        # Gate at 0.55, not 0.30.
+        #
+        # fuzzy_lookup scores token overlap as 0.6 * overlap / max(tokens), so one
+        # shared token out of two lands on exactly 0.30 - and its own filter is
+        # `if score < 0.3: continue`, so the weakest possible match passed by a
+        # hair and was returned at a hardcoded confidence of 0.9 WITHOUT the llm
+        # ever being consulted. Measured on the 60-column gold set, that single
+        # branch produced all 13 of the agent's wrong answers: PatientNum ->
+        # Group.identifier, OS_days -> Patient.birthDate, DateOfBx ->
+        # DocumentReference.date, each scoring exactly 0.300.
+        #
+        # A target must also be a real field path. fuzzy_lookup happily returns
+        # entity-tier rows, so `sex` came back as a bare `Observation` and
+        # `specimen_type` as a bare `Patient` - not field mappings at all.
+        #
+        # Anything below the gate now falls through to the llm, which is where
+        # the column archetypes live and where these belong.
+        usable_fuzzy = [
+            r for r in fuzzy_results
+            if r["score"] >= 0.55 and "." in str(r.get("target", ""))
+        ]
+        if usable_fuzzy:
+            best = usable_fuzzy[0]
             if candidate_targets:
                 # check if target is in candidates
                 for target in candidate_targets:
@@ -701,7 +725,7 @@ class ClaudeAgent(AutonomousAgent):
                         return [MappingProposal(
                             source_field=source_field,
                             target_field=target,
-                            confidence=0.9,
+                            confidence=round(min(0.9, float(best["score"])), 3),
                             reasoning=f"fuzzy match: '{source_field}' similar to '{best['source']}' ({best['schema']}) -> {best['target']}",
                             supporting_evidence={"agent": self.name, "source": "knowledge_base_fuzzy", "match": best}
                         )]
@@ -709,7 +733,7 @@ class ClaudeAgent(AutonomousAgent):
                 return [MappingProposal(
                     source_field=source_field,
                     target_field=best["target"],
-                    confidence=0.9,
+                    confidence=round(min(0.9, float(best["score"])), 3),
                     reasoning=f"fuzzy match: '{source_field}' similar to '{best['source']}' ({best['schema']}) -> {best['target']}",
                     supporting_evidence={"agent": self.name, "source": "knowledge_base_fuzzy", "match": best}
                 )]
