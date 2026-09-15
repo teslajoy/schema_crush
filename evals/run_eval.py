@@ -69,22 +69,36 @@ def run_cascade(entries):
     return out
 
 
-def _cache_stats(agent):
-    """pull prompt-cache counters off the last response, if the sdk exposes them.
+class _UsageProxy:
+    """forwards everything to the wrapped runnable, recording token usage.
 
-    the ~8,300-token system prompt is identical for every column, so after the
-    first call it should be served from cache. if cache_read stays at zero
-    across a run, something is invalidating the prefix and the run is costing
-    full price.
+    agent.llm is a pydantic RunnableBinding, which refuses attribute assignment,
+    so its .invoke cannot be monkey-patched. ClaudeAgent itself is a plain
+    object, so swapping the whole attribute for this proxy works instead.
     """
-    meta = getattr(agent, "_last_usage", None)
-    if not meta:
-        return None
-    det = meta.get("input_token_details") or {}
-    return {"cache_read": det.get("cache_read", 0),
-            "cache_creation": det.get("cache_creation", 0),
-            "input": meta.get("input_tokens", 0),
-            "output": meta.get("output_tokens", 0)}
+
+    def __init__(self, inner, totals):
+        self._inner = inner
+        self._totals = totals
+
+    def invoke(self, *args, **kwargs):
+        resp = self._inner.invoke(*args, **kwargs)
+        try:
+            um = getattr(resp, "usage_metadata", None) or {}
+            det = um.get("input_token_details") or {}
+            t = self._totals
+            t["calls"] += 1
+            t["input"] += um.get("input_tokens", 0) or 0
+            t["output"] += um.get("output_tokens", 0) or 0
+            t["cache_read"] += det.get("cache_read", 0) or 0
+            t["cache_creation"] += det.get("cache_creation", 0) or 0
+        except Exception:
+            # telemetry must never break the measurement it is observing
+            pass
+        return resp
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 def run_agent(entries, model=None):
@@ -94,23 +108,11 @@ def run_agent(entries, model=None):
         kwargs["model"] = model
     agent = ClaudeAgent(**kwargs)
 
-    # wrap invoke so we can read usage without touching agent internals
-    _orig = agent.llm.invoke
     totals = {"cache_read": 0, "cache_creation": 0, "input": 0, "output": 0, "calls": 0}
-
-    def _tracking_invoke(*a, **kw):
-        resp = _orig(*a, **kw)
-        um = getattr(resp, "usage_metadata", None) or {}
-        det = um.get("input_token_details") or {}
-        totals["calls"] += 1
-        totals["input"] += um.get("input_tokens", 0) or 0
-        totals["output"] += um.get("output_tokens", 0) or 0
-        totals["cache_read"] += det.get("cache_read", 0) or 0
-        totals["cache_creation"] += det.get("cache_creation", 0) or 0
-        return resp
-
-    agent.llm.invoke = _tracking_invoke
-    agent._eval_usage = totals
+    try:
+        agent.llm = _UsageProxy(agent.llm, totals)
+    except Exception as exc:
+        print(f"  (usage tracking unavailable: {type(exc).__name__}; eval continues)")
 
     out = []
     for e in entries:
