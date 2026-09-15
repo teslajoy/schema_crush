@@ -114,8 +114,26 @@ def run_agent(entries, model=None):
     except Exception as exc:
         print(f"  (usage tracking unavailable: {type(exc).__name__}; eval continues)")
 
+    # fail fast on a bad key. without this an auth error is caught per column and
+    # recorded as UNMAPPED, so a whole run reports "no mapping found" 20 times
+    # when nothing was ever measured.
+    try:
+        agent.llm.invoke([{"role": "user", "content": "ok"}])
+    except Exception as exc:
+        name = type(exc).__name__
+        if "Auth" in name or "401" in str(exc) or "api key" in str(exc).lower():
+            print(f"\nABORT: the api key was rejected ({name}).")
+            print("nothing was measured and nothing was billed.")
+            print("check that ANTHROPIC_API_KEY holds a real key, not a placeholder.")
+            sys.exit(2)
+        print(f"  (preflight call failed with {name}; continuing)")
+
     out = []
-    for e in entries:
+    n = len(entries)
+    print(f"\nmapping {n} columns with the agent. each column is a tool-calling\n"
+          f"loop, so this takes a few minutes and is not hung.", flush=True)
+    for i, e in enumerate(entries, 1):
+        print(f"  [{i:>2}/{n}] {e['column']:<26}", end="", flush=True)
         try:
             props = agent.propose_mappings(
                 e["column"], candidate_targets=None,
@@ -125,8 +143,10 @@ def run_agent(entries, model=None):
             reason = (props[0].reasoning or "")[:160] if props else ""
         except Exception as exc:
             pred, conf, reason = None, 0.0, f"{type(exc).__name__}: {exc}"
+        verdict = score_one(pred, e["accept"])
+        print(f" {verdict:<9} {str(pred)[:44]}", flush=True)
         out.append({**e, "predicted": pred, "confidence": conf, "stage": "agent",
-                    "reasoning": reason, "verdict": score_one(pred, e["accept"])})
+                    "reasoning": reason, "verdict": verdict})
 
     u = totals
     if u["calls"]:
