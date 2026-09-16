@@ -587,7 +587,7 @@ of record and `demo/schema_crush_tutorial.ipynb` is generated from it.
 if you use schema crush in your work, please cite it:
 
 > Sanati, N. (2026). *Schema Crush: calibrated semantic schema matching for
-> biomedical data to FHIR* (Version 1.2.0) [Computer software].
+> biomedical data to FHIR* (Version 1.3.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.22713617
 
 ```bibtex
@@ -603,7 +603,8 @@ if you use schema crush in your work, please cite it:
 ```
 
 `10.5281/zenodo.22713617` is the concept doi and always resolves to the latest
-release. to cite this exact version instead, use `10.5281/zenodo.22713618`.
+release. to cite an exact version instead, use `10.5281/zenodo.22798464` (1.3.0)
+or `10.5281/zenodo.22713618` (1.2.0).
 
 structured metadata lives in [CITATION.cff](https://github.com/teslajoy/schema_crush/blob/main/CITATION.cff), which github uses to
 render the "cite this repository" button.
