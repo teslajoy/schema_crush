@@ -721,260 +721,311 @@ def record_feedback(
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# result export
+# ---------------------------------------------------------------------------
+
+def _write_exports(rows: list[dict]) -> list[str]:
+    """write mappings to json and csv in a temp dir, return both paths."""
+    import csv as _csv
+    import tempfile
+    if not rows:
+        return []
+    d = tempfile.mkdtemp(prefix="schema_crush_")
+    jp = os.path.join(d, "mappings.json")
+    with open(jp, "w") as fh:
+        json.dump(rows, fh, indent=2, default=str)
+    cp = os.path.join(d, "mappings.csv")
+    cols = ["source", "target", "confidence", "stage", "note"]
+    with open(cp, "w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    return [jp, cp]
+
+
+def _render(rows: list[dict]):
+    """shape cascade rows into (table, summary, files) for the ui."""
+    table = [[
+        r["source"], r.get("sample_values", ""), r["target"] or "—",
+        f"{r['confidence']:.3f}" if r["confidence"] else "—",
+        r["stage"],
+        "review" if (not r["target"] or r["stage"] != "knowledge_base") else "",
+        r["note"],
+    ] for r in rows]
+    by_stage: dict = {}
+    for r in rows:
+        by_stage[r["stage"]] = by_stage.get(r["stage"], 0) + 1
+    mapped = sum(1 for r in rows if r["target"])
+    pct = (100 * mapped / len(rows)) if rows else 0
+    summary = (
+        f"**{mapped} of {len(rows)} columns mapped ({pct:.0f}%)**  ·  "
+        + "  ·  ".join(f"{k}: {v}" for k, v in sorted(by_stage.items()))
+        + "\n\nBlank rows had no curated match and scored below the calibrated "
+        "accuracy floor. They are left empty on purpose rather than filled with a "
+        "low-confidence guess. Anything flagged `review` should be checked by a "
+        "curator before use."
+    )
+    return table, summary, _write_exports(rows)
+
+
+def map_pasted_columns(columns: str, sample_values: str = ""):
+    """map column names typed or pasted by the user. no file leaves their machine."""
+    cols = _split(columns)
+    if not cols:
+        return [], "Paste a header row to begin.", None
+    if len(cols) > 200:
+        return [], f"That is {len(cols)} columns; this demo maps at most 200.", None
+    samples: dict = {}
+    if sample_values.strip():
+        try:
+            parsed = json.loads(sample_values)
+            if isinstance(parsed, dict):
+                samples = {k: (v if isinstance(v, list) else [v]) for k, v in parsed.items()}
+        except json.JSONDecodeError:
+            return [], "The example values box is not valid JSON.", None
+    rows = _map_columns(cols, samples)
+    for r in rows:
+        v = samples.get(r["source"], [])
+        if v:
+            r["sample_values"] = ", ".join(str(x) for x in v[:3])
+    return _render(rows)
+
+
+def map_uploaded_file(file_obj, attested: bool):
+    """map an uploaded csv. only the header row and a few examples are read."""
+    if not attested:
+        return [], "Confirm the file contains no PHI before uploading.", None
+    if file_obj is None:
+        return [], "Choose a csv file.", None
+    table, payload, summary = map_uploaded_csv(file_obj)
+    try:
+        rows = json.loads(payload).get("mappings", [])
+    except Exception:
+        rows = []
+    return _render(rows) if rows else (table, summary, None)
+
+
 # ---------------------------------------------------------------------------
 # ui
 # ---------------------------------------------------------------------------
 
+MCP_CONFIG = """{
+  "mcpServers": {
+    "schema-crush": {
+      "url": "https://teslajoy-schema-crush.hf.space/gradio_api/mcp/"
+    }
+  }
+}"""
+
 INTRO = f"""
 # schema crush
 
-**Agentic MCP server for mapping heterogeneous biomedical schemas to HL7 FHIR R5.**
+**Map biomedical data columns to HL7 FHIR R5.** Built on expert-curated GDC and
+HTAN mappings, with calibrated confidence so a score means what it says.
 
-Calibrated matchers over expert-curated GDC and HTAN mappings. Confidence
-scores are isotonic-calibrated on 1,280 expert rules, so a 0.8 means roughly
-80% empirical accuracy rather than an uninterpretable similarity number.
+Paste a header row below and this page answers from curated knowledge, free and
+with no sign-up. Curated knowledge covers common consortium schemas well; a
+spreadsheet it has never seen will return blanks rather than guesses. **To
+resolve those too, connect it to Claude** using either option below, and your own
+Claude does the reasoning.
 
-**Connect an MCP client to:** `/gradio_api/mcp/`
-&nbsp;&nbsp;·&nbsp;&nbsp; [source]({REPO}) &nbsp;·&nbsp; [archive](https://doi.org/{DOI}) &nbsp;·&nbsp; v{__version__}
+[source]({REPO}) · [archive](https://doi.org/{DOI}) · `pip install schema-crush` · v{__version__}
 
-Research use only. Not for clinical decision-making.
+*Research use only. Not for clinical decision-making.*
 """
 
+GEO_COLS = "sample_id, tumor_subtype, survival_months, death_event_1death_0censor, sex, histology, stage_group"
+LAB_COLS = "PatientNum, DateOfBx, Dx_Text, GradeDiff, SmokingHx, BMI_kgm2, CA19_9_UperML, NeoadjuvantYN, OS_days, Recurrence_Site"
+GDC_COLS = "case_id, primary_diagnosis, tumor_grade, gender, vital_status, days_to_death, tissue_or_organ_of_origin"
+LAB_SAMPLES = '{"GradeDiff": ["moderately differentiated"], "BMI_kgm2": ["27.4"], "NeoadjuvantYN": ["Y"]}'
 
-# theme belongs in Blocks() on gradio 5.x. gradio 6 moves it to launch(), which
-# is what the DeprecationWarning in the space logs is announcing; launch() does
-# not accept it yet on 5.50, so passing it there raises TypeError.
+RESULT_HEADERS = ["column", "examples", "FHIR target", "confidence", "stage", "flag", "note"]
+
 with gr.Blocks(title="schema crush", theme=gr.themes.Soft()) as demo:
     gr.Markdown(INTRO)
 
-    with gr.Tabs():
-        with gr.Tab("map a csv"):
-            gr.Markdown(
-                "**Upload a CSV and get FHIR R5 mappings for every column.**\n\n"
-                "Only the header row and up to three example values per column are "
-                "read. Row data is never stored or logged. Do not upload PHI.\n\n"
-                "Each column runs through the cascade and stops at the first stage "
-                "that answers: curated knowledge base, then fuzzy name match, then "
-                "calibrated embeddings. Columns that no stage can answer are left "
-                "blank rather than filled with a guess."
-            )
-            csv_in = gr.File(label="csv file", file_types=[".csv", ".tsv", ".txt"])
-            map_btn = gr.Button("map columns", variant="primary")
-            csv_summary = gr.Markdown()
-            csv_table = gr.Dataframe(
-                headers=["column", "sample values", "FHIR target", "confidence", "stage", "note"],
-                datatype=["str"] * 6,
-                wrap=True,
-                label="mappings",
-            )
-            csv_json = gr.Code(label="json", language="json")
-            map_btn.click(
-                map_uploaded_csv,
-                inputs=csv_in,
-                outputs=[csv_table, csv_json, csv_summary],
-            )
-            gr.Markdown(
-                "---\n**No file handy?** Paste column names instead. This is also the "
-                "`map_csv_columns` tool that an MCP client calls."
-            )
-            paste_cols = gr.Textbox(
-                label="column names (comma or newline separated)",
-                value="sample_id, tumor_subtype, survival_months, gender, primary_diagnosis",
-            )
-            paste_samples = gr.Textbox(
-                label="sample values (optional JSON object)",
-                value='{"tumor_subtype": ["basal", "classical"]}',
-            )
-            paste_out = gr.Code(label="json", language="json")
-            gr.Button("map these columns").click(
-                map_csv_columns, [paste_cols, paste_samples], paste_out
-            )
+    with gr.Tab("map columns"):
+        gr.Markdown(
+            "### Paste your header row\n"
+            "Column names are all this needs. Nothing from your file is uploaded, "
+            "stored, or logged."
+        )
+        cols_in = gr.Textbox(
+            label="column names (comma or newline separated)",
+            lines=3,
+            value=GDC_COLS,
+        )
+        samples_in = gr.Textbox(
+            label="example values, optional. improves accuracy for units and coded values",
+            placeholder='{"BMI_kgm2": ["27.4"], "NeoadjuvantYN": ["Y"]}',
+            lines=2,
+        )
+        map_btn = gr.Button("map columns", variant="primary")
 
-            gr.Markdown(
-                "---\n"
-                "**Want the cryptic columns resolved too?** Names like "
-                "`death_event_1death_0censor` need a model to interpret them. "
-                "Connect this Space to Claude Desktop as an MCP server and your own "
-                "Claude does that reasoning, using these 14 tools. See the About "
-                "section below for the config."
-            )
+        gr.Markdown("**Try an example:**")
+        gr.Examples(
+            examples=[
+                [GDC_COLS, ""],
+                [GEO_COLS, ""],
+                [LAB_COLS, LAB_SAMPLES],
+            ],
+            inputs=[cols_in, samples_in],
+            label=None,
+        )
 
-        with gr.Tab("map with agent"):
-            gr.Markdown(
-                "**The full pipeline, including the reasoning stage.**\n\n"
-                "The free tab above answers from curated knowledge only, so columns "
-                "it has never seen come back blank. This tab runs the agent over the "
-                "same 14 tools, which is what resolves names like `OS_days`, "
-                "`CA19_9_UperML`, or `death_event_1death_0censor`.\n\n"
-                "It needs an Anthropic API key, which **you** supply. The key is used "
-                "for this request only: never written to disk, never logged, never "
-                "kept after the response. If you would rather not paste a key, connect "
-                "this Space to Claude Desktop instead and your own Claude does the "
-                "same reasoning (config in the About section)."
-            )
-            ag_key = gr.Textbox(
-                label="your Anthropic API key (sk-ant-…)",
-                type="password",
-                placeholder="sk-ant-…",
-            )
-            ag_file = gr.File(label="csv file", file_types=[".csv", ".tsv", ".txt"])
-            ag_cols = gr.Textbox(
-                label="or paste column names",
-                placeholder="OS_days, CA19_9_UperML, NeoadjuvantYN",
-            )
-            ag_btn = gr.Button("map with agent", variant="primary")
-            ag_summary = gr.Markdown()
-            ag_table = gr.Dataframe(
-                headers=["column", "sample values", "FHIR target", "confidence", "reasoning"],
-                datatype=["str"] * 5,
-                wrap=True,
-                label="agent mappings",
-            )
-            ag_json = gr.Code(label="json", language="json")
-            # show_api=False keeps this out of the MCP schema: an mcp tool that
-            # takes an api key would invite clients to pass one over the wire.
-            ag_btn.click(
-                map_with_agent,
-                inputs=[ag_file, ag_key, ag_cols],
-                outputs=[ag_table, ag_json, ag_summary],
-                show_api=False,
-            )
+        out_summary = gr.Markdown()
+        out_table = gr.Dataframe(headers=RESULT_HEADERS, datatype=["str"] * 7,
+                                 wrap=True, label="mappings")
+        out_files = gr.File(label="download (json, csv)", file_count="multiple")
+        map_btn.click(map_pasted_columns, [cols_in, samples_in],
+                      [out_table, out_summary, out_files], show_api=False)
 
-        with gr.Tab("lookup"):
-            gr.Markdown("*Look up every curated mapping for a source term. Start here.*")
-            lu_term = gr.Textbox(label="source term", value="primary_diagnosis")
-            lu_ctx = gr.Textbox(label="context (optional)")
-            lu_schema = gr.Textbox(label="schema filter (optional)", placeholder="gdc or htan")
-            lu_content = gr.Checkbox(label="include content value mappings")
-            lu_out = gr.Code(label="result", language="json")
-            gr.Button("look up", variant="primary").click(
-                lookup_mapping, [lu_term, lu_ctx, lu_schema, lu_content], lu_out
-            )
-            gr.Examples(
-                examples=[["primary_diagnosis", "", "", False],
-                          ["tumor_grade", "", "gdc", True],
-                          ["sample_id", "sample", "", False]],
-                inputs=[lu_term, lu_ctx, lu_schema, lu_content],
-            )
+        gr.Markdown("---\n### Or upload a CSV")
+        phi_ok = gr.Checkbox(
+            value=False,
+            label="I confirm this file contains no PHI or identifiable patient data.",
+            info="Only the header row and up to three example values per column are "
+                 "read, and nothing is stored. Even so, do not upload identifiable "
+                 "data to a public demo. For data that cannot leave your machine, "
+                 "run it locally with pip install schema-crush.",
+        )
+        file_in = gr.File(label="csv file", file_types=[".csv", ".tsv", ".txt"])
+        upload_btn = gr.Button("map uploaded file", interactive=False)
+        phi_ok.change(lambda ok: gr.update(interactive=bool(ok)), phi_ok, upload_btn,
+                      show_api=False)
+        upload_btn.click(map_uploaded_file, [file_in, phi_ok],
+                         [out_table, out_summary, out_files], show_api=False)
 
-            gr.Markdown("---\n*No exact match? Find the nearest curated mappings instead.*")
-            sim_k = gr.Slider(1, 20, value=5, step=1, label="how many similar mappings")
-            gr.Button("find_similar").click(find_similar, [lu_term, sim_k], lu_out)
+    with gr.Tab("connect to Claude"):
+        gr.Markdown(
+            "## Resolve the columns curated knowledge cannot\n\n"
+            "Names like `OS_days`, `CA19_9_UperML` or `death_event_1death_0censor` "
+            "need a model to interpret them. Both options below use **your own** "
+            "Claude. Neither asks you for an API key, and neither sends anything to "
+            "this Space's operator.\n\n"
+            "### Option 1: connect Claude Desktop to this Space\n"
+            "Add this to your MCP config. Your Claude then uses the mapping, "
+            "lookup, FHIR and terminology tools directly.\n"
+        )
+        gr.Code(MCP_CONFIG, language="json", label="claude desktop mcp config")
+        gr.Markdown(
+            "### Option 2: run it locally\n"
+            "The right choice for clinical data, because nothing leaves your machine.\n"
+        )
+        gr.Code(
+            "pip install schema-crush\n\n"
+            "# then point your MCP client at the local server:\n"
+            "schema-crush-mcp",
+            language="shell", label="local install",
+        )
+        gr.Markdown(
+            f"Measured on 20 lab-style columns that curated knowledge cannot answer: "
+            f"**19 of 20 correct** with Claude connected, versus 0 without. "
+            f"See the eval in the [repository]({REPO}/tree/main/evals)."
+        )
 
-        with gr.Tab("match"):
-            gr.Markdown("*Score candidate FHIR targets with a calibrated matcher.*")
-            m_source = gr.Textbox(label="source term", value="tumor_grade")
-            m_cands = gr.Textbox(
-                label="candidate targets (comma separated)",
-                value="Observation.valueCodeableConcept, Condition.stage, Patient.id",
-            )
-            m_tier = gr.Dropdown(["", "entity", "field", "content"], label="tier", value="")
-            m_out = gr.Code(label="result", language="json")
-            with gr.Row():
-                gr.Button("rule_match", variant="primary").click(
-                    rule_match, [m_source, m_cands, m_tier], m_out
-                )
-                gr.Button("biobert_match").click(
-                    biobert_match, [m_source, m_cands, m_tier], m_out
-                )
-                gr.Button("magneto_match").click(
-                    magneto_match, [m_source, m_cands, m_tier], m_out
-                )
+    with gr.Accordion("Advanced: individual tools", open=False):
+        gr.Markdown(
+            "These are the building blocks the mapping above runs in sequence. "
+            "**A single matcher used alone performs poorly on column names**, since "
+            "raw similarity barely separates correct FHIR paths from incorrect ones. "
+            "Prefer the mapping tab; these are here for inspection and for MCP clients."
+        )
+        with gr.Tabs():
+            with gr.Tab("lookup"):
+                lu_term = gr.Textbox(label="source term", value="primary_diagnosis")
+                lu_ctx = gr.Textbox(label="context (optional)")
+                lu_schema = gr.Textbox(label="schema filter (optional)", placeholder="gdc or htan")
+                lu_content = gr.Checkbox(label="include content value mappings")
+                lu_out = gr.Code(label="result", language="json")
+                gr.Button("look up", variant="primary").click(
+                    lookup_mapping, [lu_term, lu_ctx, lu_schema, lu_content], lu_out)
+                sim_k = gr.Slider(1, 20, value=5, step=1, label="similar mappings to return")
+                gr.Button("find_similar").click(find_similar, [lu_term, sim_k], lu_out)
 
-        with gr.Tab("explore fhir"):
-            gr.Markdown("*Discover what a FHIR resource offers, or find a field by keyword.*")
-            e_res = gr.Textbox(label="resource type", value="Specimen")
-            e_out = gr.Code(label="result", language="json")
-            gr.Button("explore resource", variant="primary").click(
-                explore_fhir_resource, e_res, e_out
-            )
-            s_term = gr.Textbox(label="field keyword", value="identifier")
-            s_filter = gr.Textbox(label="restrict to resource (optional)")
-            gr.Button("search fields").click(
-                search_fhir_fields, [s_term, s_filter], e_out
-            )
+            with gr.Tab("match"):
+                m_source = gr.Textbox(label="source term", value="tumor_grade")
+                m_cands = gr.Textbox(
+                    label="candidate targets (comma separated)",
+                    value="Observation.valueCodeableConcept, Condition.stage, Patient.id")
+                m_tier = gr.Dropdown(["", "entity", "field", "content"], label="tier", value="")
+                m_out = gr.Code(label="result", language="json")
+                with gr.Row():
+                    gr.Button("rule_match", variant="primary").click(
+                        rule_match, [m_source, m_cands, m_tier], m_out)
+                    gr.Button("biobert_match").click(
+                        biobert_match, [m_source, m_cands, m_tier], m_out)
+                    gr.Button("magneto_match").click(
+                        magneto_match, [m_source, m_cands, m_tier], m_out)
 
-        with gr.Tab("terminology"):
-            gr.Markdown("*Search SNOMED CT, LOINC, and the OLS4 ontologies.*")
-            t_query = gr.Textbox(label="query", value="adenocarcinoma")
-            t_limit = gr.Slider(1, 25, value=10, step=1, label="max results")
-            t_onto = gr.Textbox(label="ontology filter (ontology search only)",
-                                placeholder="mondo, ncit, hpo, uberon")
-            t_out = gr.Code(label="result", language="json")
-            with gr.Row():
-                gr.Button("search_snomed", variant="primary").click(
-                    search_snomed, [t_query, t_limit], t_out
-                )
-                gr.Button("search_loinc").click(search_loinc, [t_query, t_limit], t_out)
-                gr.Button("search_ontology").click(
-                    search_ontology, [t_query, t_onto, t_limit], t_out
-                )
+            with gr.Tab("explore fhir"):
+                e_res = gr.Textbox(label="resource type", value="Specimen")
+                e_out = gr.Code(label="result", language="json")
+                gr.Button("explore resource", variant="primary").click(
+                    explore_fhir_resource, e_res, e_out)
+                s_term = gr.Textbox(label="field keyword", value="identifier")
+                s_filter = gr.Textbox(label="restrict to resource (optional)")
+                gr.Button("search fields").click(search_fhir_fields, [s_term, s_filter], e_out)
 
-        with gr.Tab("profile csv"):
-            gr.Markdown("*Infer use case and mapping recommendations from column names.*")
-            p_cols = gr.Textbox(
-                label="column names (comma separated)",
-                value="case_id, primary_diagnosis, tumor_grade, death_event_1death_0censor",
-            )
-            p_samples = gr.Textbox(
-                label="sample values (optional JSON object)",
-                value='{"tumor_grade": ["G1", "G2", "G3"]}',
-            )
-            p_out = gr.Code(label="result", language="json")
-            gr.Button("profile", variant="primary").click(
-                profile_csv, [p_cols, p_samples], p_out
-            )
+            with gr.Tab("terminology"):
+                t_query = gr.Textbox(label="query", value="adenocarcinoma")
+                t_limit = gr.Slider(1, 25, value=10, step=1, label="max results")
+                t_onto = gr.Textbox(label="ontology filter (ontology search only)",
+                                    placeholder="mondo, ncit, hpo, uberon")
+                t_out = gr.Code(label="result", language="json")
+                with gr.Row():
+                    gr.Button("search_snomed", variant="primary").click(
+                        search_snomed, [t_query, t_limit], t_out)
+                    gr.Button("search_loinc").click(search_loinc, [t_query, t_limit], t_out)
+                    gr.Button("search_ontology").click(
+                        search_ontology, [t_query, t_onto, t_limit], t_out)
 
-        with gr.Tab("rules"):
-            gr.Markdown("*FHIR transformation rules consolidated from GDC, CDA, HTAN, ICGC.*")
-            r_section = gr.Dropdown(
-                ["all", "patient", "condition", "staging", "snomed", "grade",
-                 "observation", "specimen", "document", "medication", "codes", "entities"],
-                label="section", value="staging",
-            )
-            r_out = gr.Code(label="result")
-            gr.Button("get rules", variant="primary").click(
-                get_transformation_rules, r_section, r_out
-            )
+            with gr.Tab("profile / rules"):
+                p_cols = gr.Textbox(label="column names (comma separated)", value=LAB_COLS)
+                p_samples = gr.Textbox(label="sample values (optional JSON object)",
+                                       value=LAB_SAMPLES)
+                p_out = gr.Code(label="result", language="json")
+                gr.Button("profile_csv", variant="primary").click(
+                    profile_csv, [p_cols, p_samples], p_out)
+                gr.Button("map_csv_columns").click(
+                    map_csv_columns, [p_cols, p_samples], p_out)
+                r_section = gr.Dropdown(
+                    ["archetypes", "all", "patient", "condition", "staging", "snomed",
+                     "grade", "observation", "specimen", "document", "medication",
+                     "codes", "entities"],
+                    label="rules section", value="archetypes")
+                gr.Button("get_transformation_rules").click(
+                    get_transformation_rules, r_section, p_out)
 
-        with gr.Tab("feedback"):
-            gr.Markdown(
-                "*The human-in-the-loop learning loop. Stats are readable here; "
-                "writes are disabled on the public deployment because the store is "
-                "shared across all visitors.*"
-            )
-            fb_out = gr.Code(label="result", language="json")
-            gr.Button("get_feedback_stats", variant="primary").click(
-                get_feedback_stats, None, fb_out
-            )
-
-            gr.Markdown("---\n*Record a review decision (requires a self-hosted instance).*")
-            with gr.Row():
-                fb_source = gr.Textbox(label="source term", value="tumor_grade")
-                fb_target = gr.Textbox(
-                    label="proposed target", value="Observation.valueCodeableConcept"
-                )
-            with gr.Row():
-                fb_decision = gr.Dropdown(
-                    ["accept", "reject", "correct"], label="decision", value="accept"
-                )
-                fb_matcher = gr.Dropdown(
-                    ["rule", "biobert", "magneto"], label="matcher", value="rule"
-                )
-                fb_tier = gr.Dropdown(
-                    ["entity", "field", "content"], label="tier", value="field"
-                )
-            with gr.Row():
-                fb_conf = gr.Slider(0.0, 1.0, value=0.85, step=0.01, label="confidence")
-                fb_truth = gr.Textbox(label="ground truth (if decision is 'correct')")
-            gr.Button("record_feedback").click(
-                record_feedback,
-                [fb_source, fb_target, fb_decision, fb_matcher, fb_tier, fb_conf, fb_truth],
-                fb_out,
-            )
+            with gr.Tab("feedback"):
+                fb_out = gr.Code(label="result", language="json")
+                gr.Button("get_feedback_stats", variant="primary").click(
+                    get_feedback_stats, None, fb_out)
+                with gr.Row():
+                    fb_source = gr.Textbox(label="source term", value="tumor_grade")
+                    fb_target = gr.Textbox(label="proposed target",
+                                           value="Observation.valueCodeableConcept")
+                with gr.Row():
+                    fb_decision = gr.Dropdown(["accept", "reject", "correct"],
+                                              label="decision", value="accept")
+                    fb_matcher = gr.Dropdown(["rule", "biobert", "magneto"],
+                                             label="matcher", value="rule")
+                    fb_tier = gr.Dropdown(["entity", "field", "content"],
+                                          label="tier", value="field")
+                with gr.Row():
+                    fb_conf = gr.Slider(0.0, 1.0, value=0.85, step=0.01, label="confidence")
+                    fb_truth = gr.Textbox(label="ground truth (if decision is 'correct')")
+                gr.Button("record_feedback").click(
+                    record_feedback,
+                    [fb_source, fb_target, fb_decision, fb_matcher, fb_tier, fb_conf, fb_truth],
+                    fb_out)
 
     gr.Markdown(
-        f"`{len(TOOLS)}` tools exposed over MCP. "
+        "Tools are exposed over MCP at `/gradio_api/mcp/`. "
         "Feedback writes and LLM profiling are disabled on this deployment."
     )
 
