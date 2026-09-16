@@ -8,8 +8,8 @@
 gradio[mcp]==5.50.0
 huggingface-hub<1.0
 
-# the package itself, from pypi
-schema-crush==1.2.0
+# the package itself, pinned to a release so the space does not move with main
+schema-crush==1.3.0
 
 # magneto is not on pypi. without it, magneto_match returns an explanatory
 # error and the other 13 tools work normally. uncomment to enable it:
